@@ -57,7 +57,7 @@ output:
 - Compare two JSON files that are already on disk, without calling any service
 - Both files must be inside `output.directory` (resolve the path and reject anything outside it, including `..` traversal)
 - Use exactly the same comparator and the same ignore / array-order settings as the live comparison
-- Return a single result in the same format as a live result
+- Return the same report format as a live run (`summary` + `results`), with one entry in `results`
 
 ## HTTP clients
 - `RestClient` built from the auto-configured `RestClient.Builder`
@@ -83,9 +83,13 @@ Runs all configured paths, saves the responses, and returns:
       "path": "/customers/42/orders",
       "status": "DIFFERENT",
       "summary": "2 differences",
+      "differenceCount": 2,
+      "byType": { "VALUE_MISMATCH": 1, "MISSING_IN_TARGET": 1 },
       "differences": [
-        { "jsonPath": "$.total", "type": "VALUE_MISMATCH", "source": 100, "target": 105 },
-        { "jsonPath": "$.items[1].discount", "type": "MISSING_IN_TARGET", "source": 5, "target": null }
+        { "jsonPath": "$.total", "type": "VALUE_MISMATCH", "source": 100, "target": 105,
+          "message": "$.total: source=100, target=105" },
+        { "jsonPath": "$.items[1].discount", "type": "MISSING_IN_TARGET", "source": 5, "target": null,
+          "message": "$.items[1].discount: present in source (5), missing in target" }
       ],
       "sourceFile": "20261118-135000/customers_42_orders.source.json",
       "targetFile": "20261118-135000/customers_42_orders.target.json"
@@ -94,10 +98,16 @@ Runs all configured paths, saves the responses, and returns:
   ]
 }
 ```
-- One short result per path
+- One result per path, always with the full detail of what differs (never just a count)
 - `status`: `IDENTICAL` | `DIFFERENT` | `ERROR`
-- Difference `type`: `MISSING_IN_SOURCE` | `MISSING_IN_TARGET` | `VALUE_MISMATCH` | `TYPE_MISMATCH`
-- No full response bodies in the report. Truncate long values
+- Difference `type`: `MISSING_IN_SOURCE` | `MISSING_IN_TARGET` | `VALUE_MISMATCH` | `TYPE_MISMATCH` | `STATUS_MISMATCH`
+- Every difference is listed in full: no cap on the number of differences and no truncation of values (a value that is an object or array is shown as JSON)
+- Each difference has: `jsonPath` (exact location, e.g. `$.items[1].discount`), `type`, `source` value, `target` value, and a short human-readable `message` (e.g. `$.total: source=100, target=105`)
+- `source` is the reference. The report states what differs, not which side is right
+- A different HTTP status code is reported as a difference of type `STATUS_MISMATCH` (`jsonPath` = `$status`, with both codes)
+- Add `differenceCount` to each `DIFFERENT` result, and `byType` counts (e.g. `{ "VALUE_MISMATCH": 1, "MISSING_IN_TARGET": 1 }`)
+- Full response bodies are not duplicated in the report: they are in the saved files (`sourceFile` / `targetFile`)
+- The three endpoints (`/compare`, `/compare/files`, `/compare/json`) return exactly this same level of detail
 - `IDENTICAL` results have no `differences` field
 
 ### `POST /compare/files`
@@ -107,8 +117,21 @@ Compares two already downloaded files. Request body:
   "targetFile": "20261118-135000/customers_42_orders.target.json" }
 ```
 - Paths are relative to `output.directory`
-- Returns one result (same format as above, with `path` set to the source file name)
+- Returns the same report format as `POST /compare` (`summary` + `results`), with one entry in `results` whose `path` is the source file name
 - `400` if a path is outside `output.directory`, `404` if a file does not exist, `ERROR` result if a file is not valid JSON
+
+### `POST /compare/json`
+Compares two JSON documents sent directly in the request body. No service is called and nothing is saved. Request body:
+```json
+{ "name": "optional label",
+  "source": { "total": 100, "items": [1, 2] },
+  "target": { "items": [1, 2], "total": 105 } }
+```
+- `source` and `target` are required and can be any valid JSON value (object, array, string, number, boolean, null)
+- `name` is optional and defaults to `inline`. It is used as `path` in the result
+- Uses the same comparator and the same ignore / array-order settings as the live comparison
+- Returns exactly the same report format as `POST /compare` (`summary` + `results`), with one entry in `results`
+- `400` if `source` or `target` is missing
 
 ## Structure
 Small flat layout: properties, client config, comparator, compare service, file storage service, controller, report records.
@@ -117,6 +140,8 @@ Small flat layout: properties, client config, comparator, compare service, file 
 Unit tests for the comparator: reordered properties, reordered arrays (ordered and unordered modes), type mismatch, missing field, ignored paths.
 Unit tests for file storage: name sanitization (including `/` and special characters), `.source.json` / `.target.json` naming, path traversal rejected for offline comparison.
 Test for `POST /compare/files` with two temporary files (identical and different).
+Test that every difference carries `jsonPath`, `type`, both values and `message`, that long values are not truncated, and that `differenceCount` / `byType` match the list.
+Test for `POST /compare/json`: identical documents with different property order, different documents, missing `source` or `target` (400), and the report format matches `POST /compare`.
 
 ## Out of scope
 UI, persistence, scheduling.
@@ -125,5 +150,6 @@ UI, persistence, scheduling.
 - `mvn clean verify` passes
 - App starts with the sample config
 - `POST /compare` returns the report format above and writes `*.source.json` / `*.target.json` files under `output.directory`
-- `POST /compare/files` compares two saved files and returns one result
+- `POST /compare/files` compares two saved files and returns the same report format
+- `POST /compare/json` compares two JSON documents from the request body and returns the same report format
 - Short README with run instructions and required env vars
