@@ -1,0 +1,337 @@
+package com.example.comparator;
+
+import java.math.BigDecimal;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+import com.example.comparator.ComparatorProperties.ArrayOrder;
+import com.example.comparator.ComparatorProperties.Comparison;
+import com.example.comparator.ComparatorProperties.UnorderedArray;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeType;
+
+/**
+ * Recursive semantic comparison of two JSON trees. Source is the reference: every difference is reported with
+ * its exact JSON path and both (original) values.
+ * <ul>
+ * <li>Object property order is ignored.</li>
+ * <li>Arrays are ordered unless configured as unordered (globally or per path), optionally matched by a key
+ * field.</li>
+ * <li>Types: see {@link TypeMatching}. Numbers compare by value ({@code 1} equals {@code 1.0}).</li>
+ * <li>A property {@code null} on one side and absent on the other: see {@link NullMatching}.</li>
+ * <li>Configured ignore paths (and everything below them) are skipped.</li>
+ * </ul>
+ * A {@code null} (or missing) document is treated as absent.
+ */
+public class JsonComparator {
+
+    /** A JSON number, exactly: no spaces, no leading '+', no leading zeros. */
+    private static final Pattern JSON_NUMBER = Pattern.compile("-?(0|[1-9]\\d*)(\\.\\d+)?([eE][+-]?\\d+)?");
+
+    private final CompareOptions defaults;
+    private final List<JsonPath> ignorePatterns;
+    private final ArrayOrder defaultArrayOrder;
+    private final List<ArrayRule> arrayRules;
+
+    public JsonComparator(Comparison settings) {
+        this.defaults = new CompareOptions(settings.typeMatching(), settings.nullMatching());
+        this.ignorePatterns = settings.ignorePaths().stream().map(JsonPath::parse).toList();
+        this.defaultArrayOrder = settings.arrayOrder();
+        this.arrayRules = settings.unorderedArrays().stream().map(ArrayRule::of).toList();
+    }
+
+    /** Options used when a comparison does not set them ({@code comparison.*} configuration). */
+    public CompareOptions defaults() {
+        return defaults;
+    }
+
+    public TypeMatching defaultTypeMatching() {
+        return defaults.typeMatching();
+    }
+
+    /** Compares with the configured default options. */
+    public List<Difference> compare(JsonNode source, JsonNode target) {
+        return compare(source, target, (CompareOptions) null);
+    }
+
+    /** Compares with the given type matching ({@code null} = configured default) and the default null matching. */
+    public List<Difference> compare(JsonNode source, JsonNode target, TypeMatching typeMatching) {
+        return compare(source, target, new CompareOptions(typeMatching, null));
+    }
+
+    /** Compares with the given options; unset options use the configured defaults. */
+    public List<Difference> compare(JsonNode source, JsonNode target, CompareOptions options) {
+        CompareOptions resolved = options == null ? defaults : options.withDefaults(defaults);
+        Mode mode = new Mode(resolved.typeMatching() == TypeMatching.LENIENT,
+                resolved.nullMatching() == NullMatching.LENIENT);
+        List<Difference> differences = new ArrayList<>();
+        compare(JsonPath.ROOT, source, target, mode, differences);
+        return differences;
+    }
+
+    private void compare(JsonPath path, JsonNode source, JsonNode target, Mode mode, List<Difference> out) {
+        if (isIgnored(path)) {
+            return;
+        }
+        boolean sourceMissing = isMissing(source);
+        boolean targetMissing = isMissing(target);
+        if (sourceMissing && targetMissing) {
+            return;
+        }
+        if (sourceMissing) {
+            out.add(Difference.missingInSource(path.toString(), target));
+            return;
+        }
+        if (targetMissing) {
+            out.add(Difference.missingInTarget(path.toString(), source));
+            return;
+        }
+        JsonNodeType type = source.getNodeType();
+        if (type != target.getNodeType()) {
+            Boolean convertedEqual = mode.lenientTypes() ? lenientScalarEquals(source, target) : null;
+            if (convertedEqual == null) {
+                out.add(Difference.typeMismatch(path.toString(), source, target));
+            }
+            else if (!convertedEqual) {
+                out.add(Difference.valueMismatch(path.toString(), source, target));
+            }
+            return;
+        }
+        switch (type) {
+            case OBJECT -> compareObjects(path, source, target, mode, out);
+            case ARRAY -> compareArrays(path, source, target, mode, out);
+            case NULL -> {
+                // null == null
+            }
+            case NUMBER -> {
+                if (!numbersEqual(source, target)) {
+                    out.add(Difference.valueMismatch(path.toString(), source, target));
+                }
+            }
+            default -> {
+                if (!source.equals(target)) {
+                    out.add(Difference.valueMismatch(path.toString(), source, target));
+                }
+            }
+        }
+    }
+
+    private void compareObjects(JsonPath path, JsonNode source, JsonNode target, Mode mode,
+            List<Difference> out) {
+        Iterator<String> sourceNames = source.fieldNames();
+        while (sourceNames.hasNext()) {
+            String name = sourceNames.next();
+            JsonNode sourceValue = source.get(name);
+            JsonNode targetValue = target.get(name);
+            if (targetValue == null && mode.lenientNulls() && sourceValue.isNull()) {
+                continue; // nullMatching=LENIENT: {"a": null} vs {} is not a difference
+            }
+            compare(path.field(name), sourceValue, targetValue, mode, out);
+        }
+        Iterator<String> targetNames = target.fieldNames();
+        while (targetNames.hasNext()) {
+            String name = targetNames.next();
+            if (source.has(name)) {
+                continue;
+            }
+            JsonNode targetValue = target.get(name);
+            if (mode.lenientNulls() && targetValue.isNull()) {
+                continue; // nullMatching=LENIENT: {} vs {"a": null} is not a difference
+            }
+            compare(path.field(name), null, targetValue, mode, out);
+        }
+    }
+
+    private void compareArrays(JsonPath path, JsonNode source, JsonNode target, Mode mode,
+            List<Difference> out) {
+        ArrayRule rule = arrayRule(path);
+        if (rule == null && defaultArrayOrder == ArrayOrder.ORDERED) {
+            int size = Math.max(source.size(), target.size());
+            for (int i = 0; i < size; i++) {
+                compare(path.index(i), source.get(i), target.get(i), mode, out);
+            }
+        }
+        else {
+            compareUnordered(path, source, target, rule == null ? null : rule.key(), mode, out);
+        }
+    }
+
+    /**
+     * Pairs elements regardless of position: first by key field (when configured), then by full equality. Paired
+     * elements are compared field by field (reported at the source index); unpaired source elements are
+     * {@code MISSING_IN_TARGET} at their source index, unpaired target elements {@code MISSING_IN_SOURCE} at their
+     * target index.
+     */
+    private void compareUnordered(JsonPath path, JsonNode source, JsonNode target, String key, Mode mode,
+            List<Difference> out) {
+        int sourceSize = source.size();
+        int targetSize = target.size();
+        boolean[] sourcePaired = new boolean[sourceSize];
+        boolean[] targetPaired = new boolean[targetSize];
+
+        if (key != null) {
+            Map<String, Deque<Integer>> targetsByKey = new HashMap<>();
+            for (int j = 0; j < targetSize; j++) {
+                String keyValue = keyOf(target.get(j), key, mode.lenientTypes());
+                if (keyValue != null) {
+                    targetsByKey.computeIfAbsent(keyValue, k -> new ArrayDeque<>()).add(j);
+                }
+            }
+            for (int i = 0; i < sourceSize; i++) {
+                String keyValue = keyOf(source.get(i), key, mode.lenientTypes());
+                Deque<Integer> candidates = keyValue == null ? null : targetsByKey.get(keyValue);
+                if (candidates != null && !candidates.isEmpty()) {
+                    int j = candidates.poll();
+                    sourcePaired[i] = true;
+                    targetPaired[j] = true;
+                    compare(path.index(i), source.get(i), target.get(j), mode, out);
+                }
+            }
+        }
+
+        for (int i = 0; i < sourceSize; i++) {
+            if (sourcePaired[i]) {
+                continue;
+            }
+            JsonPath elementPath = path.index(i);
+            for (int j = 0; j < targetSize; j++) {
+                if (!targetPaired[j] && equivalent(elementPath, source.get(i), target.get(j), mode)) {
+                    sourcePaired[i] = true;
+                    targetPaired[j] = true;
+                    break;
+                }
+            }
+        }
+
+        for (int i = 0; i < sourceSize; i++) {
+            if (!sourcePaired[i]) {
+                compare(path.index(i), source.get(i), null, mode, out);
+            }
+        }
+        for (int j = 0; j < targetSize; j++) {
+            if (!targetPaired[j]) {
+                compare(path.index(j), null, target.get(j), mode, out);
+            }
+        }
+    }
+
+    private boolean equivalent(JsonPath path, JsonNode source, JsonNode target, Mode mode) {
+        List<Difference> differences = new ArrayList<>();
+        compare(path, source, target, mode, differences);
+        return differences.isEmpty();
+    }
+
+    /**
+     * LENIENT mode, scalars of different types: a string is converted to the type of the other value.
+     *
+     * @return whether the converted values are equal, or {@code null} when the pair cannot be converted (then it
+     *         stays a TYPE_MISMATCH)
+     */
+    private static Boolean lenientScalarEquals(JsonNode source, JsonNode target) {
+        if (source.isTextual() && !target.isTextual()) {
+            return convertedEquals(source.textValue(), target);
+        }
+        if (target.isTextual() && !source.isTextual()) {
+            return convertedEquals(target.textValue(), source);
+        }
+        return null;
+    }
+
+    private static Boolean convertedEquals(String text, JsonNode other) {
+        if (other.isNumber()) {
+            BigDecimal number = parseNumber(text);
+            return number == null ? null : number.compareTo(other.decimalValue()) == 0;
+        }
+        if (other.isBoolean()) {
+            Boolean bool = parseBoolean(text);
+            return bool == null ? null : bool == other.booleanValue();
+        }
+        return null;
+    }
+
+    private static BigDecimal parseNumber(String text) {
+        if (text == null || !JSON_NUMBER.matcher(text).matches()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(text);
+        }
+        catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Boolean parseBoolean(String text) {
+        if ("true".equals(text)) {
+            return Boolean.TRUE;
+        }
+        if ("false".equals(text)) {
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    /**
+     * Key used to pair elements of a keyed unordered array. {@code 1} and {@code 1.0} are the same key; {@code 1}
+     * and {@code "1"} are the same key only in LENIENT mode.
+     */
+    private static String keyOf(JsonNode element, String key, boolean lenient) {
+        if (element == null || !element.isObject() || !element.has(key)) {
+            return null;
+        }
+        JsonNode value = element.get(key);
+        BigDecimal number = value.isNumber() ? value.decimalValue()
+                : lenient && value.isTextual() ? parseNumber(value.textValue()) : null;
+        if (number != null) {
+            return "NUMBER:" + (number.signum() == 0 ? "0" : number.stripTrailingZeros().toPlainString());
+        }
+        if (lenient && value.isTextual() && parseBoolean(value.textValue()) != null) {
+            return "BOOLEAN:" + value.textValue();
+        }
+        return value.getNodeType() + ":" + value;
+    }
+
+    private static boolean numbersEqual(JsonNode source, JsonNode target) {
+        return source.decimalValue().compareTo(target.decimalValue()) == 0;
+    }
+
+    private static boolean isMissing(JsonNode node) {
+        return node == null || node.isMissingNode();
+    }
+
+    private boolean isIgnored(JsonPath path) {
+        for (JsonPath pattern : ignorePatterns) {
+            if (pattern.matches(path)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ArrayRule arrayRule(JsonPath path) {
+        for (ArrayRule rule : arrayRules) {
+            if (rule.pattern().matches(path)) {
+                return rule;
+            }
+        }
+        return null;
+    }
+
+    /** Resolved options of one comparison. */
+    private record Mode(boolean lenientTypes, boolean lenientNulls) {
+    }
+
+    private record ArrayRule(JsonPath pattern, String key) {
+
+        static ArrayRule of(UnorderedArray config) {
+            String key = config.key() == null || config.key().isBlank() ? null : config.key().trim();
+            return new ArrayRule(JsonPath.parse(config.path()), key);
+        }
+    }
+}

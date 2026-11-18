@@ -1,0 +1,54 @@
+spring:
+  application:
+    name: rest-service-comparator
+  mvc:
+    problemdetails:
+      enabled: true
+  servlet:
+    multipart:
+      # Limits for POST /compare/files uploads (Spring Boot default is only 1MB per file)
+      max-file-size: 50MB
+      max-request-size: 100MB
+
+source_service:
+  base-url: https://source.example.com
+  client-id: ${CLIENT_ID}
+  client-secret: ${CLIENT_SECRET}
+  # Optional, defaults shown
+  connect-timeout: 5s
+  read-timeout: 30s
+  # Other source base URLs that may receive the credentials when given to POST /compare/custom
+  trusted-base-urls: []
+
+target_service:
+  base-url: https://target.example.com
+  connect-timeout: 5s
+  read-timeout: 30s
+
+paths:
+  - /customers/42/orders
+  - /customers/43/orders
+  - /products/1001
+
+output:
+  # Where live comparisons (/compare, /compare/custom) save the responses
+  directory: ./output
+
+# Optional comparison settings, shared by every endpoint
+comparison:
+  # Default for the typeMatching query parameter: STRICT (11 != "11") or LENIENT ("11" == 11, "true" == true)
+  type-matching: STRICT
+  # Default for the nullMatching query parameter: STRICT ({"a": null} vs {} is MISSING_IN_TARGET)
+  # or LENIENT (a property null on one side and absent on the other is not a difference)
+  null-matching: STRICT
+  # JSON paths to skip. [*] matches any array index, .* matches any property name.
+  ignore-paths: []
+  #  - $.generatedAt
+  #  - $.items[*].id
+  # Array order for arrays not listed below: ORDERED (default) or UNORDERED
+  array-order: ORDERED
+  # Arrays compared regardless of element order, optionally matched by a key field
+  unordered-arrays: []
+  #  - path: $.items
+  #    key: sku
+  #  - path: $.tags
