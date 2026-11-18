@@ -1,0 +1,166 @@
+package com.example.comparator;
+
+import java.io.IOException;
+import java.net.URI;
+import java.util.List;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.fasterxml.jackson.databind.JsonNode;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+/**
+ * All endpoints accept the optional query parameters {@code typeMatching=STRICT|LENIENT} and
+ * {@code nullMatching=STRICT|LENIENT} (defaults: {@code comparison.type-matching}, {@code comparison.null-matching})
+ * and return the same {@link CompareReport}.
+ */
+@RestController
+@Tag(name = "Comparison")
+public class CompareController {
+
+    static final String DEFAULT_INLINE_NAME = "inline";
+    static final String TYPE_MATCHING = "typeMatching";
+    static final String TYPE_MATCHING_DOC = "STRICT: 11 != \"11\". LENIENT: \"11\" == 11, \"true\" == true. "
+            + "Default: comparison.type-matching";
+    static final String NULL_MATCHING = "nullMatching";
+    static final String NULL_MATCHING_DOC = "STRICT: {\"a\": null} vs {} is MISSING_IN_TARGET. LENIENT: a property that "
+            + "is null on one side and absent on the other is not a difference. Default: comparison.null-matching";
+
+    private final CompareService compareService;
+
+    public CompareController(CompareService compareService) {
+        this.compareService = compareService;
+    }
+
+    /** Calls the configured services for every configured path, saves the responses, reports the differences. */
+    @Operation(summary = "Compare the configured services for every configured path",
+            description = "Responses are saved under output.directory.")
+    @PostMapping("/compare")
+    public CompareReport compare(@Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
+            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching) {
+        return compareService.compareAll(options(typeMatching, nullMatching));
+    }
+
+    /** Same as {@code /compare}, with both base URLs and the paths taken from the request body. */
+    @Operation(summary = "Compare two services given in the request, for the given paths",
+            description = "Credentials are only sent to source_service.base-url or a trusted base URL. "
+                    + "Responses are saved under output.directory.")
+    @PostMapping("/compare/custom")
+    public CompareReport compareCustom(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(examples = @ExampleObject(
+                    value = """
+                            {"sourceBaseUrl": "https://source.example.com",
+                             "targetBaseUrl": "https://target.example.com",
+                             "paths": ["/customers/42/orders", "/products/1001"]}"""))) @RequestBody CustomCompareRequest request,
+            @Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
+            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching) {
+        requireHttpUrl("sourceBaseUrl", request.sourceBaseUrl());
+        requireHttpUrl("targetBaseUrl", request.targetBaseUrl());
+        if (request.paths() == null || request.paths().isEmpty()) {
+            throw badRequest("paths is required and must not be empty");
+        }
+        if (request.paths().stream().anyMatch(path -> path == null || path.isBlank())) {
+            throw badRequest("paths must not contain blank entries");
+        }
+        return compareService.compareCustom(request.sourceBaseUrl().trim(), request.targetBaseUrl().trim(),
+                List.copyOf(request.paths()), options(typeMatching, nullMatching));
+    }
+
+    /** Compares two files already saved under {@code output.directory}. */
+    @Operation(summary = "Compare two uploaded JSON files",
+            description = "multipart/form-data with two file parts, sourceFile and targetFile. "
+                    + "Nothing is called and nothing is saved. A file that is empty or not valid JSON gives an ERROR result.")
+    @PostMapping(value = "/compare/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public CompareReport compareFiles(
+            @Parameter(description = "Source (reference) JSON file") @RequestPart("sourceFile") MultipartFile sourceFile,
+            @Parameter(description = "Target JSON file") @RequestPart("targetFile") MultipartFile targetFile,
+            @Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
+            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching) {
+        return compareService.compareFiles(fileName(sourceFile, "source"), content(sourceFile),
+                fileName(targetFile, "target"), content(targetFile), options(typeMatching, nullMatching));
+    }
+
+    /**
+     * Compares two JSON documents from the request body: {@code {"name": "...", "source": ..., "target": ...}}.
+     * {@code source} and {@code target} may be any JSON value, including {@code null}, but must be present.
+     */
+    @Operation(summary = "Compare two JSON documents sent in the request body",
+            description = "source and target are required and can be any JSON value. Nothing is called or saved.")
+    @PostMapping("/compare/json")
+    public CompareReport compareJson(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(
+                    schema = @Schema(type = "object"), examples = @ExampleObject(value = """
+                            {"name": "demo",
+                             "source": {"total": "100", "items": [1, 2]},
+                             "target": {"items": [1, 2], "total": 100}}"""))) @RequestBody JsonNode body,
+            @Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
+            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching) {
+        if (body == null || !body.isObject() || !body.has("source") || !body.has("target")) {
+            throw badRequest("source and target are required");
+        }
+        JsonNode nameNode = body.get("name");
+        String name = nameNode == null || nameNode.isNull() || nameNode.asText().isBlank()
+                ? DEFAULT_INLINE_NAME : nameNode.asText();
+        return compareService.compareJson(name, body.get("source"), body.get("target"), options(typeMatching, nullMatching));
+    }
+
+    /** Original file name without any directory part; {@code side.json} when the client sent none. */
+    private static String fileName(MultipartFile file, String side) {
+        String name = StringUtils.getFilename(StringUtils.cleanPath(
+                file.getOriginalFilename() == null ? "" : file.getOriginalFilename().replace('\\', '/')));
+        return name == null || name.isBlank() ? side + ".json" : name;
+    }
+
+    private static byte[] content(MultipartFile file) {
+        try {
+            return file.getBytes();
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not read uploaded file", e);
+        }
+    }
+
+    private static void requireHttpUrl(String field, String value) {
+        if (value == null || value.isBlank()) {
+            throw badRequest(field + " is required");
+        }
+        try {
+            URI uri = URI.create(value.trim());
+            String scheme = uri.getScheme();
+            if (scheme == null || uri.getHost() == null
+                    || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+                throw badRequest(field + " must be an absolute http or https URL");
+            }
+        }
+        catch (IllegalArgumentException e) {
+            throw badRequest(field + " must be an absolute http or https URL");
+        }
+    }
+
+    private static CompareOptions options(TypeMatching typeMatching, NullMatching nullMatching) {
+        return new CompareOptions(typeMatching, nullMatching);
+    }
+
+    private static ResponseStatusException badRequest(String reason) {
+        return new ResponseStatusException(HttpStatus.BAD_REQUEST, reason);
+    }
+
+    /** Request body of {@code POST /compare/custom}. */
+    public record CustomCompareRequest(String sourceBaseUrl, String targetBaseUrl, List<String> paths) {
+    }
+}
