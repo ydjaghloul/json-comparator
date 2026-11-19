@@ -106,7 +106,7 @@ class CompareEndpointsTest {
             JsonNode report = call("/compare", null, status().isOk());
 
             assertThat(report.at("/summary")).isEqualTo(json(
-                    "{\"total\":5,\"identical\":1,\"different\":2,\"errors\":2,\"typeMatching\":\"STRICT\",\"nullMatching\":\"STRICT\"}"));
+                    "{\"total\":5,\"identical\":1,\"different\":2,\"errors\":2,\"typeMatching\":\"STRICT\",\"nullMatching\":\"STRICT\",\"orderStrict\":false}"));
 
             JsonNode identical = result(report, "/products/1001");
             assertThat(identical.get("status").asText()).isEqualTo("IDENTICAL");
@@ -192,7 +192,7 @@ class CompareEndpointsTest {
 
             assertThat(report).isEqualTo(json("""
                     {"summary":{"total":1,"identical":1,"different":0,"errors":0,
-                                "typeMatching":"STRICT","nullMatching":"STRICT"},
+                                "typeMatching":"STRICT","nullMatching":"STRICT","orderStrict":false},
                      "results":[{"path":"orders.source.json","status":"IDENTICAL","summary":"identical"}]}"""));
         }
 
@@ -265,7 +265,7 @@ class CompareEndpointsTest {
                     status().isOk());
 
             assertThat(report).isEqualTo(json("""
-                    {"summary":{"total":1,"identical":1,"different":0,"errors":0,"typeMatching":"STRICT","nullMatching":"STRICT"},
+                    {"summary":{"total":1,"identical":1,"different":0,"errors":0,"typeMatching":"STRICT","nullMatching":"STRICT","orderStrict":false},
                      "results":[{"path":"inline","status":"IDENTICAL","summary":"identical"}]}"""));
         }
 
@@ -276,7 +276,7 @@ class CompareEndpointsTest {
                     status().isOk());
 
             assertThat(report).isEqualTo(json("""
-                    {"summary":{"total":1,"identical":0,"different":1,"errors":0,"typeMatching":"STRICT","nullMatching":"STRICT"},
+                    {"summary":{"total":1,"identical":0,"different":1,"errors":0,"typeMatching":"STRICT","nullMatching":"STRICT","orderStrict":false},
                      "results":[{"path":"my check","status":"DIFFERENT","summary":"1 difference",
                        "differenceCount":1,"byType":{"VALUE_MISMATCH":1},
                        "differences":[{"jsonPath":"$.total","type":"VALUE_MISMATCH","source":100,"target":105,
@@ -323,7 +323,7 @@ class CompareEndpointsTest {
                     SERVICES.baseUrl() + "/target", "/customers/42/orders", "/customers/43/orders"), status().isOk());
 
             assertThat(report.at("/summary")).isEqualTo(json(
-                    "{\"total\":2,\"identical\":0,\"different\":1,\"errors\":1,\"typeMatching\":\"STRICT\",\"nullMatching\":\"STRICT\"}"));
+                    "{\"total\":2,\"identical\":0,\"different\":1,\"errors\":1,\"typeMatching\":\"STRICT\",\"nullMatching\":\"STRICT\",\"orderStrict\":false}"));
             JsonNode different = result(report, "/customers/42/orders");
             assertThat(different.get("differences")).extracting(d -> d.get("jsonPath").asText())
                     .containsExactly("$.total", "$.items[1].discount");
@@ -426,6 +426,22 @@ class CompareEndpointsTest {
                     .at("/results/0/status").asText()).isEqualTo("IDENTICAL");
             assertThat(call("/compare?typeMatching=LENIENT", null, status().isOk())
                     .at("/summary/typeMatching").asText()).isEqualTo("LENIENT");
+        }
+
+        @Test
+        void orderStrictAndIdPropertiesParameters() throws Exception {
+            String body = "{\"source\":{\"l\":[{\"ref\":1,\"v\":1},{\"ref\":2,\"v\":2}]},"
+                    + "\"target\":{\"l\":[{\"ref\":2,\"v\":2},{\"ref\":1,\"v\":1}]}}";
+
+            JsonNode relaxed = call("/compare/json?idProperties=ref", body, status().isOk());
+            assertThat(relaxed.at("/summary/orderStrict").asBoolean()).isFalse();
+            assertThat(relaxed.at("/summary/identical").asInt()).isEqualTo(1);
+
+            JsonNode strict = call("/compare/json?orderStrict=true", body, status().isOk());
+            assertThat(strict.at("/summary/orderStrict").asBoolean()).isTrue();
+            assertThat(strict.at("/summary/different").asInt()).isEqualTo(1);
+
+            assertThat(call("/compare/json?orderStrict=maybe", body, status().isBadRequest())).isNotNull();
         }
 
         @Test

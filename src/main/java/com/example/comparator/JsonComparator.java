@@ -5,9 +5,11 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import com.example.comparator.ComparatorProperties.ArrayOrder;
@@ -21,8 +23,8 @@ import com.fasterxml.jackson.databind.node.JsonNodeType;
  * its exact JSON path and both (original) values.
  * <ul>
  * <li>Object property order is ignored.</li>
- * <li>Arrays are ordered unless configured as unordered (globally or per path), optionally matched by a key
- * field.</li>
+ * <li>Arrays: unless {@code orderStrict} is set, element order does not matter. Elements are paired by the
+ * configured key of the path or by an id property detected among the candidates, then by equality.</li>
  * <li>Types: see {@link TypeMatching}. Numbers compare by value ({@code 1} equals {@code 1.0}).</li>
  * <li>A property {@code null} on one side and absent on the other: see {@link NullMatching}.</li>
  * <li>Configured ignore paths (and everything below them) are skipped.</li>
@@ -40,7 +42,8 @@ public class JsonComparator {
     private final List<ArrayRule> arrayRules;
 
     public JsonComparator(Comparison settings) {
-        this.defaults = new CompareOptions(settings.typeMatching(), settings.nullMatching());
+        this.defaults = new CompareOptions(settings.typeMatching(), settings.nullMatching(),
+                settings.arrayOrder() == ArrayOrder.ORDERED, settings.idProperties());
         this.ignorePatterns = settings.ignorePaths().stream().map(JsonPath::parse).toList();
         this.defaultArrayOrder = settings.arrayOrder();
         this.arrayRules = settings.unorderedArrays().stream().map(ArrayRule::of).toList();
@@ -69,7 +72,8 @@ public class JsonComparator {
     public List<Difference> compare(JsonNode source, JsonNode target, CompareOptions options) {
         CompareOptions resolved = options == null ? defaults : options.withDefaults(defaults);
         Mode mode = new Mode(resolved.typeMatching() == TypeMatching.LENIENT,
-                resolved.nullMatching() == NullMatching.LENIENT);
+                resolved.nullMatching() == NullMatching.LENIENT, Boolean.TRUE.equals(resolved.orderStrict()),
+                resolved.idProperties());
         List<Difference> differences = new ArrayList<>();
         compare(JsonPath.ROOT, source, target, mode, differences);
         return differences;
@@ -151,14 +155,19 @@ public class JsonComparator {
     private void compareArrays(JsonPath path, JsonNode source, JsonNode target, Mode mode,
             List<Difference> out) {
         ArrayRule rule = arrayRule(path);
-        if (rule == null && defaultArrayOrder == ArrayOrder.ORDERED) {
+        // Strict order = position by position, except for paths explicitly configured as unordered
+        if (rule == null && mode.orderStrict()) {
             int size = Math.max(source.size(), target.size());
             for (int i = 0; i < size; i++) {
                 compare(path.index(i), source.get(i), target.get(i), mode, out);
             }
         }
         else {
-            compareUnordered(path, source, target, rule == null ? null : rule.key(), mode, out);
+            String key = rule == null ? null : rule.key();
+            if (key == null) {
+                key = detectIdProperty(source, target, mode);
+            }
+            compareUnordered(path, source, target, key, mode, out);
         }
     }
 
@@ -219,6 +228,37 @@ public class JsonComparator {
                 compare(path.index(j), null, target.get(j), mode, out);
             }
         }
+    }
+
+    /**
+     * Picks, among the candidate id properties (in priority order), the first one that every element of both
+     * arrays carries as a scalar value, and whose values are unique within each array. Returns {@code null} when
+     * none qualifies (elements are then paired by equality only).
+     */
+    private static String detectIdProperty(JsonNode source, JsonNode target, Mode mode) {
+        if (source.isEmpty() || target.isEmpty()) {
+            return null;
+        }
+        for (String candidate : mode.idProperties()) {
+            if (usableId(source, candidate, mode) && usableId(target, candidate, mode)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static boolean usableId(JsonNode array, String property, Mode mode) {
+        Set<String> seen = new HashSet<>();
+        for (JsonNode element : array) {
+            if (element == null || !element.isObject() || !element.has(property)
+                    || !element.get(property).isValueNode() || element.get(property).isNull()) {
+                return false;
+            }
+            if (!seen.add(keyOf(element, property, mode.lenientTypes()))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean equivalent(JsonPath path, JsonNode source, JsonNode target, Mode mode) {
@@ -324,7 +364,8 @@ public class JsonComparator {
     }
 
     /** Resolved options of one comparison. */
-    private record Mode(boolean lenientTypes, boolean lenientNulls) {
+    private record Mode(boolean lenientTypes, boolean lenientNulls, boolean orderStrict,
+            List<String> idProperties) {
     }
 
     private record ArrayRule(JsonPath pattern, String key) {

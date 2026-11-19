@@ -26,7 +26,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * All endpoints accept the optional query parameters {@code typeMatching=STRICT|LENIENT} and
- * {@code nullMatching=STRICT|LENIENT} (defaults: {@code comparison.type-matching}, {@code comparison.null-matching})
+ * {@code nullMatching=STRICT|LENIENT}, {@code orderStrict=true|false} and {@code idProperties=id,code,...}
+ * (defaults: {@code comparison.type-matching}, {@code comparison.null-matching})
  * and return the same {@link CompareReport}.
  */
 @RestController
@@ -41,6 +42,15 @@ public class CompareController {
     static final String NULL_MATCHING_DOC = "STRICT: {\"a\": null} vs {} is MISSING_IN_TARGET. LENIENT: a property that "
             + "is null on one side and absent on the other is not a difference. Default: comparison.null-matching";
 
+    static final String ORDER_STRICT = "orderStrict";
+    static final String ORDER_STRICT_DOC = "true: array elements are compared by position. false: the order of "
+            + "array elements does not matter; elements are paired by id, then by equality. "
+            + "Default: comparison.array-order (UNORDERED unless configured otherwise)";
+    static final String ID_PROPERTIES = "idProperties";
+    static final String ID_PROPERTIES_DOC = "Comma-separated candidate id properties, in priority order, used to "
+            + "pair array elements when order is not strict (e.g. id,code). The first one present with a unique "
+            + "value in every element of both arrays is used. Default: comparison.id-properties";
+
     private final CompareService compareService;
 
     public CompareController(CompareService compareService) {
@@ -52,8 +62,10 @@ public class CompareController {
             description = "Responses are saved under output.directory.")
     @PostMapping("/compare")
     public CompareReport compare(@Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
-            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching) {
-        return compareService.compareAll(options(typeMatching, nullMatching));
+            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching,
+            @Parameter(description = ORDER_STRICT_DOC) @RequestParam(name = ORDER_STRICT, required = false) Boolean orderStrict,
+            @Parameter(description = ID_PROPERTIES_DOC) @RequestParam(name = ID_PROPERTIES, required = false) List<String> idProperties) {
+        return compareService.compareAll(options(typeMatching, nullMatching, orderStrict, idProperties));
     }
 
     /** Same as {@code /compare}, with both base URLs and the paths taken from the request body. */
@@ -68,7 +80,9 @@ public class CompareController {
                              "targetBaseUrl": "https://target.example.com",
                              "paths": ["/customers/42/orders", "/products/1001"]}"""))) @RequestBody CustomCompareRequest request,
             @Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
-            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching) {
+            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching,
+            @Parameter(description = ORDER_STRICT_DOC) @RequestParam(name = ORDER_STRICT, required = false) Boolean orderStrict,
+            @Parameter(description = ID_PROPERTIES_DOC) @RequestParam(name = ID_PROPERTIES, required = false) List<String> idProperties) {
         requireHttpUrl("sourceBaseUrl", request.sourceBaseUrl());
         requireHttpUrl("targetBaseUrl", request.targetBaseUrl());
         if (request.paths() == null || request.paths().isEmpty()) {
@@ -78,7 +92,7 @@ public class CompareController {
             throw badRequest("paths must not contain blank entries");
         }
         return compareService.compareCustom(request.sourceBaseUrl().trim(), request.targetBaseUrl().trim(),
-                List.copyOf(request.paths()), options(typeMatching, nullMatching));
+                List.copyOf(request.paths()), options(typeMatching, nullMatching, orderStrict, idProperties));
     }
 
     /** Compares two files already saved under {@code output.directory}. */
@@ -90,9 +104,11 @@ public class CompareController {
             @Parameter(description = "Source (reference) JSON file") @RequestPart("sourceFile") MultipartFile sourceFile,
             @Parameter(description = "Target JSON file") @RequestPart("targetFile") MultipartFile targetFile,
             @Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
-            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching) {
+            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching,
+            @Parameter(description = ORDER_STRICT_DOC) @RequestParam(name = ORDER_STRICT, required = false) Boolean orderStrict,
+            @Parameter(description = ID_PROPERTIES_DOC) @RequestParam(name = ID_PROPERTIES, required = false) List<String> idProperties) {
         return compareService.compareFiles(fileName(sourceFile, "source"), content(sourceFile),
-                fileName(targetFile, "target"), content(targetFile), options(typeMatching, nullMatching));
+                fileName(targetFile, "target"), content(targetFile), options(typeMatching, nullMatching, orderStrict, idProperties));
     }
 
     /**
@@ -109,14 +125,16 @@ public class CompareController {
                              "source": {"total": "100", "items": [1, 2]},
                              "target": {"items": [1, 2], "total": 100}}"""))) @RequestBody JsonNode body,
             @Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
-            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching) {
+            @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching,
+            @Parameter(description = ORDER_STRICT_DOC) @RequestParam(name = ORDER_STRICT, required = false) Boolean orderStrict,
+            @Parameter(description = ID_PROPERTIES_DOC) @RequestParam(name = ID_PROPERTIES, required = false) List<String> idProperties) {
         if (body == null || !body.isObject() || !body.has("source") || !body.has("target")) {
             throw badRequest("source and target are required");
         }
         JsonNode nameNode = body.get("name");
         String name = nameNode == null || nameNode.isNull() || nameNode.asText().isBlank()
                 ? DEFAULT_INLINE_NAME : nameNode.asText();
-        return compareService.compareJson(name, body.get("source"), body.get("target"), options(typeMatching, nullMatching));
+        return compareService.compareJson(name, body.get("source"), body.get("target"), options(typeMatching, nullMatching, orderStrict, idProperties));
     }
 
     /** Original file name without any directory part; {@code side.json} when the client sent none. */
@@ -152,8 +170,11 @@ public class CompareController {
         }
     }
 
-    private static CompareOptions options(TypeMatching typeMatching, NullMatching nullMatching) {
-        return new CompareOptions(typeMatching, nullMatching);
+    private static CompareOptions options(TypeMatching typeMatching, NullMatching nullMatching, Boolean orderStrict,
+            List<String> idProperties) {
+        List<String> ids = idProperties == null ? null
+                : idProperties.stream().filter(s -> s != null && !s.isBlank()).map(String::trim).toList();
+        return new CompareOptions(typeMatching, nullMatching, orderStrict, ids == null || ids.isEmpty() ? null : ids);
     }
 
     private static ResponseStatusException badRequest(String reason) {

@@ -6,7 +6,7 @@ import java.util.List;
 public record CompareReport(Summary summary, List<PathResult> results) {
 
     public record Summary(int total, int identical, int different, int errors, TypeMatching typeMatching,
-            NullMatching nullMatching) {
+            NullMatching nullMatching, boolean orderStrict) {
     }
 
     /** {@code options} must be resolved (no null field): the report states the options actually used. */
@@ -22,7 +22,7 @@ public record CompareReport(Summary summary, List<PathResult> results) {
             }
         }
         return new CompareReport(new Summary(results.size(), identical, different, errors,
-                options.typeMatching(), options.nullMatching()),
+                options.typeMatching(), options.nullMatching(), Boolean.TRUE.equals(options.orderStrict())),
                 List.copyOf(results));
     }
 }
