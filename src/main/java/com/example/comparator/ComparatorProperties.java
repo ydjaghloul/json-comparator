@@ -26,7 +26,7 @@ public record ComparatorProperties(
         }
         paths = paths == null ? List.of() : List.copyOf(paths);
         output = output == null ? new Output(null) : output;
-        comparison = comparison == null ? new Comparison(null, null, null, null, null) : comparison;
+        comparison = comparison == null ? new Comparison(null, null, null, null, null, null) : comparison;
     }
 
     /**
@@ -73,14 +73,24 @@ public record ComparatorProperties(
             NullMatching nullMatching,
             List<String> ignorePaths,
             ArrayOrder arrayOrder,
-            List<UnorderedArray> unorderedArrays) {
+            List<UnorderedArray> unorderedArrays,
+            List<String> idProperties) {
+
+        /** Candidate id properties proposed when none are configured. */
+        public static final List<String> DEFAULT_ID_PROPERTIES = List.of("id", "uuid", "guid", "key", "code", "sku");
+
+        public Comparison(TypeMatching typeMatching, NullMatching nullMatching, List<String> ignorePaths,
+                ArrayOrder arrayOrder, List<UnorderedArray> unorderedArrays) {
+            this(typeMatching, nullMatching, ignorePaths, arrayOrder, unorderedArrays, null);
+        }
 
         public Comparison {
             typeMatching = typeMatching == null ? TypeMatching.STRICT : typeMatching;
             nullMatching = nullMatching == null ? NullMatching.STRICT : nullMatching;
             ignorePaths = ignorePaths == null ? List.of() : List.copyOf(ignorePaths);
-            arrayOrder = arrayOrder == null ? ArrayOrder.ORDERED : arrayOrder;
+            arrayOrder = arrayOrder == null ? ArrayOrder.UNORDERED : arrayOrder;
             unorderedArrays = unorderedArrays == null ? List.of() : List.copyOf(unorderedArrays);
+            idProperties = idProperties == null ? DEFAULT_ID_PROPERTIES : List.copyOf(idProperties);
         }
     }
 
@@ -88,7 +98,8 @@ public record ComparatorProperties(
      * An array compared without regard to element order.
      *
      * @param path JSON path of the array, e.g. {@code $.items} or {@code $.orders[*].lines}
-     * @param key  optional field used to pair elements of the two arrays (e.g. {@code id})
+     * @param key  optional field used to pair elements of the two arrays (e.g. {@code id}); when absent the id is
+     *             detected among {@code comparison.id-properties}
      */
     public record UnorderedArray(String path, String key) {
     }

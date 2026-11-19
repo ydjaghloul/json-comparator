@@ -35,8 +35,12 @@ mvn spring-boot:run
 - `comparison.type-matching`: default type matching, `STRICT` (default) or `LENIENT`
 - `comparison.null-matching`: default null matching, `STRICT` (default) or `LENIENT`
 - `comparison.ignore-paths`: JSON paths to skip, e.g. `$.generatedAt`, `$.items[*].id` (`*` matches any single property or index)
-- `comparison.array-order`: `ORDERED` (default) or `UNORDERED` for all arrays
-- `comparison.unordered-arrays`: list of `{path, key}`; arrays at `path` are compared regardless of order, paired by `key` when given, otherwise by equality. Unpaired elements are reported at their own index (source index for `MISSING_IN_TARGET`, target index for `MISSING_IN_SOURCE`).
+- `comparison.array-order`: `UNORDERED` (default, order of array elements does not matter) or `ORDERED` (by position); default of the `orderStrict` query parameter
+- `comparison.id-properties`: candidate id properties used to pair array elements when order does not matter (default `id, uuid, guid, key, code, sku`). For each array the first candidate that is present as a scalar, with a unique value, in every element of both arrays is used; if none qualifies, elements are paired by equality. Paired elements are compared field by field.
+- `comparison.unordered-arrays`: list of `{path, key}`; arrays at `path` are always compared regardless of order (even with `orderStrict=true`), paired by `key` when given, otherwise as above. Unpaired elements are reported at their own index (source index for `MISSING_IN_TARGET`, target index for `MISSING_IN_SOURCE`).
+
+## Array comparison
+By default the order of array elements is ignored. Objects are paired by an id property (see `comparison.id-properties`, or the `idProperties` query parameter, e.g. `idProperties=ref,code`), so a changed field is reported as a field difference at the source index (`$.items[1].qty`) instead of as a missing + extra element. Use `orderStrict=true` to compare by position. Both parameters are accepted by every endpoint, and the report summary states the `orderStrict` actually used.
 
 ## API
 Swagger UI: http://localhost:8080/swagger-ui.html (OpenAPI JSON: http://localhost:8080/v3/api-docs). Each endpoint has a ready-to-run example body under "Try it out".

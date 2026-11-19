@@ -45,9 +45,14 @@ comparison:
   ignore-paths: []
   #  - $.generatedAt
   #  - $.items[*].id
-  # Array order for arrays not listed below: ORDERED (default) or UNORDERED
-  array-order: ORDERED
-  # Arrays compared regardless of element order, optionally matched by a key field
+  # Default for the orderStrict query parameter. UNORDERED (default): the order of array elements does not matter;
+  # ORDERED: elements are compared by position
+  array-order: UNORDERED
+  # Candidate id properties, in priority order, used to pair array elements when order does not matter.
+  # The first one present with a unique scalar value in every element of both arrays is used;
+  # otherwise elements are paired by equality. Default shown.
+  id-properties: [id, uuid, guid, key, code, sku]
+  # Arrays always compared regardless of element order (even with orderStrict=true), with an explicit key field
   unordered-arrays: []
   #  - path: $.items
   #    key: sku

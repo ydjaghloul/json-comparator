@@ -126,8 +126,9 @@ class JsonComparatorTest {
     class OrderedArrays {
 
         @Test
-        void reorderedArrayIsDifferentByDefault() {
-            List<Difference> differences = compare("{'tags':['a','b']}", "{'tags':['b','a']}");
+        void reorderedArrayIsDifferentWhenOrderIsStrict() {
+            Comparison settings = new Comparison(null, null, null, ArrayOrder.ORDERED, null);
+            List<Difference> differences = compare(settings, "{'tags':['a','b']}", "{'tags':['b','a']}");
 
             assertThat(differences).extracting(Difference::jsonPath).containsExactly("$.tags[0]", "$.tags[1]");
             assertThat(differences).extracting(Difference::type).containsOnly(DifferenceType.VALUE_MISMATCH);
@@ -167,7 +168,8 @@ class JsonComparatorTest {
 
         @Test
         void unorderedRuleOnlyAppliesToItsPath() {
-            Comparison settings = new Comparison(null, null, null, null, List.of(new UnorderedArray("$.tags", null)));
+            Comparison settings = new Comparison(null, null, null, ArrayOrder.ORDERED,
+                    List.of(new UnorderedArray("$.tags", null)));
 
             assertThat(compare(settings, "{'tags':['a','b'],'other':[1,2]}", "{'tags':['b','a'],'other':[2,1]}"))
                     .extracting(Difference::jsonPath).containsExactly("$.other[0]", "$.other[1]");
@@ -192,8 +194,8 @@ class JsonComparatorTest {
         void keyMatchingIsTypeAware() {
             Comparison settings = new Comparison(null, null, null, null, List.of(new UnorderedArray("$[*].lines", "id")));
 
-            List<Difference> differences = compare(settings, "[{'lines':[{'id':1},{'id':2}]}]",
-                    "[{'lines':[{'id':2.0},{'id':'1'}]}]");
+            List<Difference> differences = compare(settings, "[{'id':0,'lines':[{'id':1},{'id':2}]}]",
+                    "[{'id':0,'lines':[{'id':2.0},{'id':'1'}]}]");
 
             assertThat(differences).extracting(Difference::jsonPath, Difference::type).containsExactly(
                     tuple("$[0].lines[0]", DifferenceType.MISSING_IN_TARGET),
@@ -390,5 +392,77 @@ class JsonComparatorTest {
         });
         assertThat(new JsonComparator(new Comparison(null, null, null, null, null)).compare(null, json("{'a':1}")))
                 .singleElement().extracting(Difference::type).isEqualTo(DifferenceType.MISSING_IN_SOURCE);
+    }
+
+    @Nested
+    class OrderInsensitiveWithIds {
+
+        private final JsonComparator comparator = new JsonComparator(new Comparison(null, null, null, null, null));
+
+        private List<Difference> run(String source, String target, CompareOptions options) {
+            return comparator.compare(json(source), json(target), options);
+        }
+
+        @Test
+        void orderDoesNotMatterByDefault() {
+            assertThat(run("{'tags':['a','b']}", "{'tags':['b','a']}", null)).isEmpty();
+        }
+
+        @Test
+        void orderStrictComparesByPosition() {
+            assertThat(run("{'tags':['a','b']}", "{'tags':['b','a']}",
+                    new CompareOptions(null, null, true, null))).hasSize(2);
+        }
+
+        @Test
+        void objectsAreMatchedByDetectedIdAndComparedField_byField() {
+            List<Difference> differences = run(
+                    "{'items':[{'id':1,'q':1},{'id':2,'q':2}]}",
+                    "{'items':[{'id':2,'q':9},{'id':1,'q':1}]}", null);
+
+            assertThat(differences).singleElement().satisfies(d -> {
+                assertThat(d.jsonPath()).isEqualTo("$.items[1].q");
+                assertThat(d.type()).isEqualTo(DifferenceType.VALUE_MISMATCH);
+            });
+        }
+
+        @Test
+        void idPropertyIsChosenFromTheProposedListInPriorityOrder() {
+            // "id" is duplicated so it cannot identify elements; "code" is unique and is used
+            List<Difference> differences = run(
+                    "[{'id':1,'code':'A','v':1},{'id':1,'code':'B','v':2}]",
+                    "[{'id':1,'code':'B','v':2},{'id':1,'code':'A','v':3}]", null);
+
+            assertThat(differences).extracting(Difference::jsonPath).containsExactly("$[0].v");
+        }
+
+        @Test
+        void idPropertiesCanBeGivenPerComparison() {
+            List<Difference> differences = run(
+                    "[{'ref':'x','v':1},{'ref':'y','v':2}]",
+                    "[{'ref':'y','v':2},{'ref':'x','v':5}]",
+                    new CompareOptions(null, null, null, List.of("ref")));
+
+            assertThat(differences).extracting(Difference::jsonPath).containsExactly("$[0].v");
+        }
+
+        @Test
+        void withoutUsableIdElementsArePairedByEquality() {
+            assertThat(run("[{'a':1},{'a':2}]", "[{'a':2},{'a':1}]", null)).isEmpty();
+            assertThat(run("[{'a':1},{'a':2}]", "[{'a':2},{'a':3}]", null)).hasSize(2);
+        }
+
+        @Test
+        void nestedArraysAreAlsoOrderInsensitive() {
+            assertThat(run("[{'id':1,'lines':[{'id':'a'},{'id':'b'}]},{'id':2,'lines':[]}]",
+                    "[{'id':2,'lines':[]},{'id':1,'lines':[{'id':'b'},{'id':'a'}]}]", null)).isEmpty();
+        }
+
+        @Test
+        void missingAndExtraElementsAreReported() {
+            assertThat(run("[{'id':1},{'id':2}]", "[{'id':2},{'id':3}]", null))
+                    .extracting(Difference::type)
+                    .containsExactlyInAnyOrder(DifferenceType.MISSING_IN_TARGET, DifferenceType.MISSING_IN_SOURCE);
+        }
     }
 }
