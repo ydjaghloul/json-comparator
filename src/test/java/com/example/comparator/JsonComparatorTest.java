@@ -89,7 +89,7 @@ class JsonComparatorTest {
             assertThat(d.target()).isNull();
         });
         assertThat(compare("{'a':null}", "{'a':0}")).singleElement()
-                .extracting(Difference::type).isEqualTo(DifferenceType.TYPE_MISMATCH);
+                .extracting(Difference::type).isEqualTo(DifferenceType.VALUE_MISMATCH);
     }
 
     @Test
@@ -101,9 +101,9 @@ class JsonComparatorTest {
                 tuple("$.items[0].discount", DifferenceType.MISSING_IN_TARGET),
                 tuple("$.items[0].tax", DifferenceType.MISSING_IN_SOURCE));
         assertThat(differences.get(0).message())
-                .isEqualTo("$.items[0].discount: present in source (5), missing in target");
+                .isEqualTo("$.items[sku=A].discount: present in source (5), missing in target");
         assertThat(differences.get(1).message())
-                .isEqualTo("$.items[0].tax: missing in source, present in target (2)");
+                .isEqualTo("$.items[sku=A].tax: missing in source, present in target (2)");
     }
 
     @Test
@@ -287,12 +287,15 @@ class JsonComparatorTest {
         @Test
         void lenientKeepsTypeMismatchWhenNotConvertible() {
             List<Difference> differences = compare(
-                    "{'a':'abc','b':' 11','c':null,'d':1,'e':{},'f':'yes'}",
-                    "{'a':11,'b':11,'c':'null','d':true,'e':[],'f':true}", TypeMatching.LENIENT);
+                    "{'a':'abc','b':' 11','d':1,'e':{},'f':'yes'}",
+                    "{'a':11,'b':11,'d':true,'e':[],'f':true}", TypeMatching.LENIENT);
 
-            assertThat(differences).extracting(Difference::jsonPath).containsExactly("$.a", "$.b", "$.c", "$.d",
+            assertThat(differences).extracting(Difference::jsonPath).containsExactly("$.a", "$.b", "$.d",
                     "$.e", "$.f");
             assertThat(differences).extracting(Difference::type).containsOnly(DifferenceType.TYPE_MISMATCH);
+            // null is a value: it never gives a type mismatch
+            assertThat(compare("{'c':null}", "{'c':'null'}", TypeMatching.LENIENT)).singleElement()
+                    .extracting(Difference::type).isEqualTo(DifferenceType.VALUE_MISMATCH);
         }
 
         @Test
@@ -355,7 +358,7 @@ class JsonComparatorTest {
         @Test
         void lenientStillReportsNullVersusAValue() {
             assertThat(compare("{'a':null}", "{'a':1}", NullMatching.LENIENT)).singleElement()
-                    .extracting(Difference::type).isEqualTo(DifferenceType.TYPE_MISMATCH);
+                    .extracting(Difference::type).isEqualTo(DifferenceType.VALUE_MISMATCH);
         }
 
         @Test
@@ -463,6 +466,82 @@ class JsonComparatorTest {
             assertThat(run("[{'id':1},{'id':2}]", "[{'id':2},{'id':3}]", null))
                     .extracting(Difference::type)
                     .containsExactlyInAnyOrder(DifferenceType.MISSING_IN_TARGET, DifferenceType.MISSING_IN_SOURCE);
+        }
+    }
+
+    @Nested
+    class V05 {
+
+        private final JsonComparator comparator = new JsonComparator(new Comparison(null, null, null, null, null));
+
+        private List<Difference> run(String source, String target) {
+            return comparator.compare(json(source), json(target));
+        }
+
+        @Test
+        void stringVersusNullIsAValueMismatchBothWays() {
+            assertThat(run("{'a':'jjj'}", "{'a':null}")).singleElement().satisfies(d -> {
+                assertThat(d.type()).isEqualTo(DifferenceType.VALUE_MISMATCH);
+                assertThat(d.message()).isEqualTo("$.a: source=\"jjj\", target=null");
+            });
+            assertThat(run("{'a':null}", "{'a':{'x':1}}")).extracting(Difference::type)
+                    .containsExactly(DifferenceType.VALUE_MISMATCH);
+            assertThat(run("{'a':[1]}", "{'a':null}")).extracting(Difference::type)
+                    .containsExactly(DifferenceType.VALUE_MISMATCH);
+            assertThat(run("{'a':1}", "{'a':'1'}")).extracting(Difference::type)
+                    .containsExactly(DifferenceType.TYPE_MISMATCH);
+        }
+
+        @Test
+        void differenceInsideAnArrayElementNamesTheElementById() {
+            assertThat(run("{'orders':[{'id':7,'lines':[{'code':'X','qty':1}]}]}",
+                    "{'orders':[{'lines':[{'code':'X','qty':2}],'id':7}]}")).singleElement().satisfies(d -> {
+                        assertThat(d.jsonPath()).isEqualTo("$.orders[0].lines[0].qty");
+                        assertThat(d.location()).isEqualTo("$.orders[id=7].lines[code=X].qty");
+                        assertThat(d.message()).isEqualTo("$.orders[id=7].lines[code=X].qty: source=1, target=2");
+                    });
+        }
+
+        @Test
+        void elementsWithoutIdAreDescribedByTheirFields() {
+            assertThat(comparator.compare(json("{'rows':[{'name':'bob','age':3,'x':{'y':1}}]}"),
+                    json("{'rows':[{'name':'bob','age':4,'x':{'y':1}}]}"), new CompareOptions(null, null, true, null)))
+                    .singleElement().satisfies(d -> assertThat(d.location())
+                            .isEqualTo("$.rows[0: name=bob, age=3].age"));
+        }
+
+        @Test
+        void locationIsOmittedWhenNoArrayIsInvolved() {
+            assertThat(run("{'a':{'b':1}}", "{'a':{'b':2}}")).singleElement().satisfies(d -> {
+                assertThat(d.location()).isNull();
+                assertThat(d.message()).startsWith("$.a.b:");
+            });
+        }
+
+        @Test
+        void abcVersusAbeReportsCMissingInTargetAndEMissingInSource() {
+            List<Difference> differences = run("{'t':['a','b','c']}", "{'t':['a','b','e']}");
+
+            assertThat(differences).extracting(Difference::type, d -> d.message()).containsExactly(
+                    tuple(DifferenceType.MISSING_IN_TARGET,
+                            "$.t[2]: element \"c\" is in source but has no match in target"),
+                    tuple(DifferenceType.MISSING_IN_SOURCE,
+                            "$.t[2]: element \"e\" is in target but has no match in source"));
+        }
+
+        @Test
+        void abcVersusAbeInStrictOrderIsAValueMismatch() {
+            assertThat(comparator.compare(json("{'t':['a','b','c']}"), json("{'t':['a','b','e']}"),
+                    new CompareOptions(null, null, true, null))).singleElement().satisfies(d -> {
+                        assertThat(d.type()).isEqualTo(DifferenceType.VALUE_MISMATCH);
+                        assertThat(d.message()).isEqualTo("$.t[2]: source=\"c\", target=\"e\"");
+                    });
+        }
+
+        @Test
+        void unmatchedObjectsAreIdentifiedById() {
+            assertThat(run("[{'id':1},{'id':2}]", "[{'id':2},{'id':3}]")).extracting(Difference::location)
+                    .containsExactly("$[id=1]", "$[id=3]");
         }
     }
 }
