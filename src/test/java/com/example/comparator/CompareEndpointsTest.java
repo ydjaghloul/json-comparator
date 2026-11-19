@@ -123,8 +123,9 @@ class CompareEndpointsTest {
             assertThat(different.get("differences")).isEqualTo(json("""
                     [{"jsonPath":"$.total","type":"VALUE_MISMATCH","source":100,"target":105,
                       "message":"$.total: source=100, target=105"},
-                     {"jsonPath":"$.items[1].discount","type":"MISSING_IN_TARGET","source":5,"target":null,
-                      "message":"$.items[1].discount: present in source (5), missing in target"}]"""));
+                     {"jsonPath":"$.items[1].discount","location":"$.items[sku=B].discount","type":"MISSING_IN_TARGET",
+                      "source":5,"target":null,
+                      "message":"$.items[sku=B].discount: present in source (5), missing in target"}]"""));
 
             JsonNode error = result(report, "/customers/43/orders");
             assertThat(error.get("status").asText()).isEqualTo("ERROR");

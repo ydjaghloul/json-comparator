@@ -25,6 +25,13 @@ final class JsonPath {
         this.depth = depth;
     }
 
+    /** Text of a property step, as it appears in a path: {@code .name} or {@code ['odd name']}. */
+    static String fieldSegment(String name) {
+        StringBuilder out = new StringBuilder();
+        new Segment(name, -1, false).appendTo(out);
+        return out.toString();
+    }
+
     JsonPath field(String name) {
         return new JsonPath(this, new Segment(name, -1, false), depth + 1);
     }

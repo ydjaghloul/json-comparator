@@ -75,12 +75,12 @@ public class JsonComparator {
                 resolved.nullMatching() == NullMatching.LENIENT, Boolean.TRUE.equals(resolved.orderStrict()),
                 resolved.idProperties());
         List<Difference> differences = new ArrayList<>();
-        compare(JsonPath.ROOT, source, target, mode, differences);
+        compare(Cursor.ROOT, source, target, mode, differences);
         return differences;
     }
 
-    private void compare(JsonPath path, JsonNode source, JsonNode target, Mode mode, List<Difference> out) {
-        if (isIgnored(path)) {
+    private void compare(Cursor at, JsonNode source, JsonNode target, Mode mode, List<Difference> out) {
+        if (isIgnored(at.path())) {
             return;
         }
         boolean sourceMissing = isMissing(source);
@@ -89,45 +89,49 @@ public class JsonComparator {
             return;
         }
         if (sourceMissing) {
-            out.add(Difference.missingInSource(path.toString(), target));
+            out.add(Difference.missingInSource(at.path().toString(), at.label(), target, at.element()));
             return;
         }
         if (targetMissing) {
-            out.add(Difference.missingInTarget(path.toString(), source));
+            out.add(Difference.missingInTarget(at.path().toString(), at.label(), source, at.element()));
             return;
         }
         JsonNodeType type = source.getNodeType();
         if (type != target.getNodeType()) {
+            if (source.isNull() || target.isNull()) {
+                // null is a value like another: "abc" vs null is a different value, not a different type
+                out.add(Difference.valueMismatch(at.path().toString(), at.label(), source, target));
+                return;
+            }
             Boolean convertedEqual = mode.lenientTypes() ? lenientScalarEquals(source, target) : null;
             if (convertedEqual == null) {
-                out.add(Difference.typeMismatch(path.toString(), source, target));
+                out.add(Difference.typeMismatch(at.path().toString(), at.label(), source, target));
             }
             else if (!convertedEqual) {
-                out.add(Difference.valueMismatch(path.toString(), source, target));
+                out.add(Difference.valueMismatch(at.path().toString(), at.label(), source, target));
             }
             return;
         }
         switch (type) {
-            case OBJECT -> compareObjects(path, source, target, mode, out);
-            case ARRAY -> compareArrays(path, source, target, mode, out);
+            case OBJECT -> compareObjects(at, source, target, mode, out);
+            case ARRAY -> compareArrays(at, source, target, mode, out);
             case NULL -> {
                 // null == null
             }
             case NUMBER -> {
                 if (!numbersEqual(source, target)) {
-                    out.add(Difference.valueMismatch(path.toString(), source, target));
+                    out.add(Difference.valueMismatch(at.path().toString(), at.label(), source, target));
                 }
             }
             default -> {
                 if (!source.equals(target)) {
-                    out.add(Difference.valueMismatch(path.toString(), source, target));
+                    out.add(Difference.valueMismatch(at.path().toString(), at.label(), source, target));
                 }
             }
         }
     }
 
-    private void compareObjects(JsonPath path, JsonNode source, JsonNode target, Mode mode,
-            List<Difference> out) {
+    private void compareObjects(Cursor at, JsonNode source, JsonNode target, Mode mode, List<Difference> out) {
         Iterator<String> sourceNames = source.fieldNames();
         while (sourceNames.hasNext()) {
             String name = sourceNames.next();
@@ -136,7 +140,7 @@ public class JsonComparator {
             if (targetValue == null && mode.lenientNulls() && sourceValue.isNull()) {
                 continue; // nullMatching=LENIENT: {"a": null} vs {} is not a difference
             }
-            compare(path.field(name), sourceValue, targetValue, mode, out);
+            compare(at.field(name), sourceValue, targetValue, mode, out);
         }
         Iterator<String> targetNames = target.fieldNames();
         while (targetNames.hasNext()) {
@@ -148,18 +152,18 @@ public class JsonComparator {
             if (mode.lenientNulls() && targetValue.isNull()) {
                 continue; // nullMatching=LENIENT: {} vs {"a": null} is not a difference
             }
-            compare(path.field(name), null, targetValue, mode, out);
+            compare(at.field(name), null, targetValue, mode, out);
         }
     }
 
-    private void compareArrays(JsonPath path, JsonNode source, JsonNode target, Mode mode,
-            List<Difference> out) {
-        ArrayRule rule = arrayRule(path);
+    private void compareArrays(Cursor at, JsonNode source, JsonNode target, Mode mode, List<Difference> out) {
+        ArrayRule rule = arrayRule(at.path());
         // Strict order = position by position, except for paths explicitly configured as unordered
         if (rule == null && mode.orderStrict()) {
             int size = Math.max(source.size(), target.size());
             for (int i = 0; i < size; i++) {
-                compare(path.index(i), source.get(i), target.get(i), mode, out);
+                JsonNode element = i < source.size() ? source.get(i) : target.get(i);
+                compare(at.element(i, element, null, mode), source.get(i), target.get(i), mode, out);
             }
         }
         else {
@@ -167,17 +171,17 @@ public class JsonComparator {
             if (key == null) {
                 key = detectIdProperty(source, target, mode);
             }
-            compareUnordered(path, source, target, key, mode, out);
+            compareUnordered(at, source, target, key, mode, out);
         }
     }
 
     /**
-     * Pairs elements regardless of position: first by key field (when configured), then by full equality. Paired
-     * elements are compared field by field (reported at the source index); unpaired source elements are
-     * {@code MISSING_IN_TARGET} at their source index, unpaired target elements {@code MISSING_IN_SOURCE} at their
-     * target index.
+     * Pairs elements regardless of position: first by id (explicit key or detected id property), then by full
+     * equality. Paired elements are compared field by field (reported at the source index); unpaired source
+     * elements are {@code MISSING_IN_TARGET} at their source index, unpaired target elements
+     * {@code MISSING_IN_SOURCE} at their target index. Every element is identified by its id in the location.
      */
-    private void compareUnordered(JsonPath path, JsonNode source, JsonNode target, String key, Mode mode,
+    private void compareUnordered(Cursor at, JsonNode source, JsonNode target, String key, Mode mode,
             List<Difference> out) {
         int sourceSize = source.size();
         int targetSize = target.size();
@@ -199,7 +203,7 @@ public class JsonComparator {
                     int j = candidates.poll();
                     sourcePaired[i] = true;
                     targetPaired[j] = true;
-                    compare(path.index(i), source.get(i), target.get(j), mode, out);
+                    compare(at.element(i, source.get(i), key, mode), source.get(i), target.get(j), mode, out);
                 }
             }
         }
@@ -208,9 +212,9 @@ public class JsonComparator {
             if (sourcePaired[i]) {
                 continue;
             }
-            JsonPath elementPath = path.index(i);
+            Cursor elementAt = at.element(i, source.get(i), key, mode);
             for (int j = 0; j < targetSize; j++) {
-                if (!targetPaired[j] && equivalent(elementPath, source.get(i), target.get(j), mode)) {
+                if (!targetPaired[j] && equivalent(elementAt, source.get(i), target.get(j), mode)) {
                     sourcePaired[i] = true;
                     targetPaired[j] = true;
                     break;
@@ -220,12 +224,12 @@ public class JsonComparator {
 
         for (int i = 0; i < sourceSize; i++) {
             if (!sourcePaired[i]) {
-                compare(path.index(i), source.get(i), null, mode, out);
+                compare(at.element(i, source.get(i), key, mode), source.get(i), null, mode, out);
             }
         }
         for (int j = 0; j < targetSize; j++) {
             if (!targetPaired[j]) {
-                compare(path.index(j), null, target.get(j), mode, out);
+                compare(at.element(j, target.get(j), key, mode), null, target.get(j), mode, out);
             }
         }
     }
@@ -261,9 +265,9 @@ public class JsonComparator {
         return true;
     }
 
-    private boolean equivalent(JsonPath path, JsonNode source, JsonNode target, Mode mode) {
+    private boolean equivalent(Cursor at, JsonNode source, JsonNode target, Mode mode) {
         List<Difference> differences = new ArrayList<>();
-        compare(path, source, target, mode, differences);
+        compare(at, source, target, mode, differences);
         return differences.isEmpty();
     }
 
@@ -361,6 +365,58 @@ public class JsonComparator {
             }
         }
         return null;
+    }
+
+    /**
+     * Where the comparison is: the exact path, and the same path with every array element identified by its id
+     * ({@code $.items[id=2].lines[id=7].qty}) or, without id, by its index and main scalar fields.
+     */
+    private record Cursor(JsonPath path, String label, boolean element) {
+
+        static final Cursor ROOT = new Cursor(JsonPath.ROOT, "$", false);
+
+        Cursor field(String name) {
+            return new Cursor(path.field(name), label + JsonPath.fieldSegment(name), false);
+        }
+
+        /** @param idProperty the id property used to pair this array, or {@code null} */
+        Cursor element(int index, JsonNode element, String idProperty, Mode mode) {
+            return new Cursor(path.index(index), label + describe(index, element, idProperty, mode.idProperties()),
+                    true);
+        }
+
+        private static String describe(int index, JsonNode element, String idProperty, List<String> candidates) {
+            if (element == null || !element.isObject()) {
+                return "[" + index + "]";
+            }
+            List<String> properties = new ArrayList<>();
+            if (idProperty != null) {
+                properties.add(idProperty);
+            }
+            properties.addAll(candidates);
+            for (String property : properties) {
+                JsonNode value = element.get(property);
+                if (value != null && value.isValueNode() && !value.isNull()) {
+                    return "[" + property + "=" + scalar(value) + "]";
+                }
+            }
+            StringBuilder fields = new StringBuilder();
+            int shown = 0;
+            Iterator<Map.Entry<String, JsonNode>> it = element.fields();
+            while (it.hasNext() && shown < 3) {
+                Map.Entry<String, JsonNode> field = it.next();
+                if (field.getValue().isValueNode() && !field.getValue().isNull()) {
+                    fields.append(shown++ == 0 ? "" : ", ").append(field.getKey()).append('=')
+                            .append(scalar(field.getValue()));
+                }
+            }
+            return shown == 0 ? "[" + index + "]" : "[" + index + ": " + fields + "]";
+        }
+
+        private static String scalar(JsonNode value) {
+            String text = value.isTextual() ? value.textValue() : value.toString();
+            return text.length() > 30 ? text.substring(0, 27) + "..." : text;
+        }
     }
 
     /** Resolved options of one comparison. */
