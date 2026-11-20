@@ -63,11 +63,11 @@ class FileStorageServiceTest {
         String name = run.reserveName("/customers/42/orders");
         JsonNode body = MAPPER.readTree("{\"total\":100,\"items\":[1,2]}");
 
-        String sourceFile = storage.save(run, name + FileStorageService.SOURCE_SUFFIX, body).orElseThrow();
-        String targetFile = storage.save(run, name + FileStorageService.TARGET_SUFFIX, body).orElseThrow();
+        String sourceFile = storage.save(run, name + "/" + FileStorageService.SOURCE_FILE, body).orElseThrow();
+        String targetFile = storage.save(run, name + "/" + FileStorageService.TARGET_FILE, body).orElseThrow();
 
-        assertThat(sourceFile).isEqualTo("20261118-135000/customers_42_orders.source.json");
-        assertThat(targetFile).isEqualTo("20261118-135000/customers_42_orders.target.json");
+        assertThat(sourceFile).isEqualTo("20261118-135000/customers_42_orders/source.json");
+        assertThat(targetFile).isEqualTo("20261118-135000/customers_42_orders/target.json");
         String written = Files.readString(outputDir.resolve(sourceFile));
         assertThat(written).contains("\n");
         assertThat(MAPPER.readTree(written)).isEqualTo(body);

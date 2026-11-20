@@ -13,7 +13,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder({ "path", "status", "summary", "differenceCount", "byType", "differences", "sourceFile",
-        "targetFile" })
+        "targetFile", "reportFile" })
 public record PathResult(
         String path,
         ResultStatus status,
@@ -22,12 +22,14 @@ public record PathResult(
         Map<DifferenceType, Integer> byType,
         List<Difference> differences,
         String sourceFile,
-        String targetFile) {
+        String targetFile,
+        String reportFile) {
 
     /** IDENTICAL when the list is empty, otherwise DIFFERENT with the full list, its count and counts by type. */
     static PathResult compared(String path, List<Difference> differences, String sourceFile, String targetFile) {
         if (differences.isEmpty()) {
-            return new PathResult(path, ResultStatus.IDENTICAL, "identical", null, null, null, sourceFile, targetFile);
+            return new PathResult(path, ResultStatus.IDENTICAL, "identical", null, null, null, sourceFile, targetFile,
+                    null);
         }
         Map<DifferenceType, Integer> byType = new LinkedHashMap<>();
         for (Difference difference : differences) {
@@ -36,10 +38,16 @@ public record PathResult(
         int count = differences.size();
         String summary = count + (count == 1 ? " difference" : " differences");
         return new PathResult(path, ResultStatus.DIFFERENT, summary, count, byType, List.copyOf(differences),
-                sourceFile, targetFile);
+                sourceFile, targetFile, null);
     }
 
     static PathResult error(String path, String message, String sourceFile, String targetFile) {
-        return new PathResult(path, ResultStatus.ERROR, message, null, null, null, sourceFile, targetFile);
+        return new PathResult(path, ResultStatus.ERROR, message, null, null, null, sourceFile, targetFile, null);
+    }
+
+    /** Same result, with the location of its saved report (relative to {@code output.directory}). */
+    PathResult withReportFile(String reportFile) {
+        return new PathResult(path, status, summary, differenceCount, byType, differences, sourceFile, targetFile,
+                reportFile);
     }
 }

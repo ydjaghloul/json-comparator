@@ -151,8 +151,8 @@ class CompareEndpointsTest {
 
             String sourceFile = different.get("sourceFile").asText();
             String targetFile = different.get("targetFile").asText();
-            assertThat(sourceFile).matches("\\d{8}-\\d{6}(-\\d+)?/customers_42_orders\\.source\\.json");
-            assertThat(targetFile).matches("\\d{8}-\\d{6}(-\\d+)?/customers_42_orders\\.target\\.json");
+            assertThat(sourceFile).matches("\\d{8}-\\d{6}(-\\d+)?/customers_42_orders/source\\.json");
+            assertThat(targetFile).matches("\\d{8}-\\d{6}(-\\d+)?/customers_42_orders/target\\.json");
             String savedSource = Files.readString(OUTPUT_DIR.resolve(sourceFile));
             assertThat(savedSource).contains(System.lineSeparator());
             assertThat(json(savedSource)).isEqualTo(json(ORDERS_42_SOURCE));
@@ -161,6 +161,28 @@ class CompareEndpointsTest {
             // A non-2xx response is saved when its body is JSON
             JsonNode statusMismatch = result(report, "/status/check");
             assertThat(OUTPUT_DIR.resolve(statusMismatch.get("targetFile").asText())).exists();
+        }
+
+        @Test
+        void savesAFolderPerPathWithBothResponsesAndItsReport() throws Exception {
+            JsonNode report = call("/compare", null, status().isOk());
+            JsonNode different = result(report, "/customers/42/orders");
+
+            String reportFile = different.get("reportFile").asText();
+            assertThat(reportFile).matches("\\d{8}-\\d{6}(-\\d+)?/customers_42_orders/report\\.json");
+            java.nio.file.Path folder = OUTPUT_DIR.resolve(reportFile).getParent();
+            assertThat(folder.resolve("source.json")).exists();
+            assertThat(folder.resolve("target.json")).exists();
+            // the saved report is the result of this path, including where its files are
+            assertThat(json(Files.readString(OUTPUT_DIR.resolve(reportFile)))).isEqualTo(different);
+
+            // an ERROR result and an IDENTICAL result are saved too
+            assertThat(OUTPUT_DIR.resolve(result(report, "/customers/43/orders").get("reportFile").asText()))
+                    .exists();
+            assertThat(OUTPUT_DIR.resolve(result(report, "/products/1001").get("reportFile").asText())).exists();
+
+            // the whole run is saved at the root of the run folder
+            assertThat(json(Files.readString(folder.getParent().resolve("report.json")))).isEqualTo(report);
         }
 
         @Test
@@ -310,7 +332,7 @@ class CompareEndpointsTest {
             JsonNode inline = call("/compare/json", request.toString(), status().isOk()).at("/results/0");
 
             ObjectNode liveWithoutFiles = live.deepCopy();
-            liveWithoutFiles.remove(List.of("sourceFile", "targetFile"));
+            liveWithoutFiles.remove(List.of("sourceFile", "targetFile", "reportFile"));
             assertThat(inline).isEqualTo(liveWithoutFiles);
         }
     }
