@@ -17,18 +17,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Saves responses of live comparisons under {@code {output.directory}/{yyyyMMdd-HHmmss}/}. Only response bodies
+ * Saves live comparisons under {@code {output.directory}/{yyyyMMdd-HHmmss}/}: one folder per path holding the
+ * two responses and the report of that path, plus the report of the whole run. Only response bodies and reports
  * are ever written.
  */
 @Service
 public class FileStorageService {
 
-    static final String SOURCE_SUFFIX = ".source.json";
-    static final String TARGET_SUFFIX = ".target.json";
+    /** Files written in the folder of each path: {@code {run}/{name}/source.json} etc. */
+    static final String SOURCE_FILE = "source.json";
+    static final String TARGET_FILE = "target.json";
+    static final String REPORT_FILE = "report.json";
 
     private static final Logger log = LoggerFactory.getLogger(FileStorageService.class);
     private static final DateTimeFormatter RUN_FOLDER_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
@@ -84,14 +86,17 @@ public class FileStorageService {
     /**
      * Writes {@code body} as pretty-printed JSON into the run folder.
      *
+     * @param fileName file name relative to the run folder, may include a sub folder ({@code orders/source.json});
+     *                 missing folders are created
      * @return the file path relative to {@code output.directory}, or empty if nothing was saved
      */
-    public Optional<String> save(RunFolder run, String fileName, JsonNode body) {
+    public Optional<String> save(RunFolder run, String fileName, Object body) {
         if (run.folder() == null || body == null) {
             return Optional.empty();
         }
         Path file = run.folder().resolve(fileName);
         try {
+            Files.createDirectories(file.getParent());
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), body);
             return Optional.of(relativize(file));
         }
@@ -103,6 +108,9 @@ public class FileStorageService {
 
     /** Path relative to {@code output.directory}, always with {@code /} separators. */
     public String relativize(Path file) {
+        if (file == null) {
+            return null;
+        }
         return root.relativize(file.toAbsolutePath().normalize()).toString().replace(File.separatorChar, '/');
     }
 

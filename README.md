@@ -1,6 +1,6 @@
 # REST Service Comparator
 
-Full specification: [SPEC_v0.5.md](SPEC_v0.5.md).
+Full specification: [SPEC_v0.6.md](SPEC_v0.6.md).
 
 Spring Boot 3.5 / Java 17 app that calls two versions of a REST service with the same relative paths and reports semantic JSON differences.
 
@@ -23,14 +23,14 @@ Credentials are never logged and never written to saved files. If a variable is 
 mvn clean verify
 export CLIENT_ID=... CLIENT_SECRET=...
 mvn spring-boot:run
-# or: java -jar target/rest-service-comparator-0.5.0.jar
+# or: java -jar target/rest-service-comparator-0.6.0.jar
 ```
 
 ## Configuration (`src/main/resources/application.yml`)
 - `source_service.base-url`, `target_service.base-url` (required)
 - `*.connect-timeout` (default `5s`), `*.read-timeout` (default `30s`)
 - `paths`: relative paths appended to each base URL as written (no templating, no re-encoding; `{` `}` are not supported)
-- `output.directory`: where each live run (`/compare`, `/compare/custom`) writes `{yyyyMMdd-HHmmss}/{name}.source.json` / `.target.json`
+- `output.directory`: where each live run (`/compare`, `/compare/custom`) writes `{yyyyMMdd-HHmmss}/report.json` (whole run) and, for each path, a folder `{yyyyMMdd-HHmmss}/{name}/` with `source.json`, `target.json` and `report.json` (the report of that path)
 - `source_service.trusted-base-urls`: other source base URLs allowed to receive the credentials (for `/compare/custom`)
 - `comparison.type-matching`: default type matching, `STRICT` (default) or `LENIENT`
 - `comparison.null-matching`: default null matching, `STRICT` (default) or `LENIENT`
@@ -58,8 +58,8 @@ curl -X POST localhost:8080/compare/custom -H 'Content-Type: application/json' \
 
 # Comparison of two uploaded JSON files (nothing called, nothing saved)
 curl -X POST localhost:8080/compare/files \
-  -F sourceFile=@output/20261118-135000/customers_42_orders.source.json \
-  -F targetFile=@output/20261118-135000/customers_42_orders.target.json
+  -F sourceFile=@output/20261118-135000/customers_42_orders/source.json \
+  -F targetFile=@output/20261118-135000/customers_42_orders/target.json
 
 # Inline comparison (nothing called, nothing saved)
 curl -X POST localhost:8080/compare/json -H 'Content-Type: application/json' \

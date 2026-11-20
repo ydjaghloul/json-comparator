@@ -86,7 +86,9 @@ public class CompareService {
         for (String path : paths) {
             results.add(comparePath(source, target, run, path, options));
         }
-        return CompareReport.of(results, options);
+        CompareReport report = CompareReport.of(results, options);
+        storage.save(run, FileStorageService.REPORT_FILE, report);
+        return report;
     }
 
     PathResult comparePath(RestClient sourceService, RestClient targetService, RunFolder run, String path,
@@ -95,19 +97,28 @@ public class CompareService {
             Response source = fetch(sourceService, SOURCE_SERVICE, path);
             Response target = fetch(targetService, TARGET_SERVICE, path);
 
-            String name = run.reserveName(path);
-            String sourceFile = storage.save(run, name + FileStorageService.SOURCE_SUFFIX, source.json()).orElse(null);
-            String targetFile = storage.save(run, name + FileStorageService.TARGET_SUFFIX, target.json()).orElse(null);
+            String folder = run.reserveName(path) + "/";
+            String sourceFile = storage.save(run, folder + FileStorageService.SOURCE_FILE, source.json()).orElse(null);
+            String targetFile = storage.save(run, folder + FileStorageService.TARGET_FILE, target.json()).orElse(null);
 
+            PathResult result;
             if (source.error() != null || target.error() != null) {
-                return PathResult.error(path, joinErrors(source.error(), target.error()), sourceFile, targetFile);
+                result = PathResult.error(path, joinErrors(source.error(), target.error()), sourceFile, targetFile);
             }
-            List<Difference> differences = new ArrayList<>();
-            if (source.status() != target.status()) {
-                differences.add(Difference.statusMismatch(source.status(), target.status()));
+            else {
+                List<Difference> differences = new ArrayList<>();
+                if (source.status() != target.status()) {
+                    differences.add(Difference.statusMismatch(source.status(), target.status()));
+                }
+                differences.addAll(comparator.compare(source.json(), target.json(), options));
+                result = PathResult.compared(path, differences, sourceFile, targetFile);
             }
-            differences.addAll(comparator.compare(source.json(), target.json(), options));
-            return PathResult.compared(path, differences, sourceFile, targetFile);
+            // The report is saved with its own location, so the file says where its siblings are
+            String reportFile = storage.relativize(
+                    run.folder() == null ? null : run.folder().resolve(folder + FileStorageService.REPORT_FILE));
+            PathResult withReport = reportFile == null ? result : result.withReportFile(reportFile);
+            return storage.save(run, folder + FileStorageService.REPORT_FILE, withReport).isPresent() ? withReport
+                    : result;
         }
         catch (RuntimeException e) {
             log.warn("Comparison failed for {}: {}", path, e.toString());
