@@ -97,7 +97,7 @@ public class JsonComparator {
             return;
         }
         if (sourceMissing) {
-            out.add(Difference.missingInSource(at.path().toString(), at.label(), target, at.element()));
+            out.add(Difference.missingInSource(at.path().toString(), at.targetPath().toString(), at.label(), target, at.element()));
             return;
         }
         if (targetMissing) {
@@ -108,15 +108,15 @@ public class JsonComparator {
         if (type != target.getNodeType()) {
             if (source.isNull() || target.isNull()) {
                 // null is a value like another: "abc" vs null is a different value, not a different type
-                out.add(Difference.valueMismatch(at.path().toString(), at.label(), source, target));
+                out.add(Difference.valueMismatch(at.path().toString(), at.targetPath().toString(), at.label(), source, target));
                 return;
             }
             Boolean convertedEqual = mode.lenientTypes() ? lenientScalarEquals(source, target) : null;
             if (convertedEqual == null) {
-                out.add(Difference.typeMismatch(at.path().toString(), at.label(), source, target));
+                out.add(Difference.typeMismatch(at.path().toString(), at.targetPath().toString(), at.label(), source, target));
             }
             else if (!convertedEqual) {
-                out.add(Difference.valueMismatch(at.path().toString(), at.label(), source, target));
+                out.add(Difference.valueMismatch(at.path().toString(), at.targetPath().toString(), at.label(), source, target));
             }
             return;
         }
@@ -128,12 +128,12 @@ public class JsonComparator {
             }
             case NUMBER -> {
                 if (!numbersEqual(source, target)) {
-                    out.add(Difference.valueMismatch(at.path().toString(), at.label(), source, target));
+                    out.add(Difference.valueMismatch(at.path().toString(), at.targetPath().toString(), at.label(), source, target));
                 }
             }
             default -> {
                 if (!source.equals(target)) {
-                    out.add(Difference.valueMismatch(at.path().toString(), at.label(), source, target));
+                    out.add(Difference.valueMismatch(at.path().toString(), at.targetPath().toString(), at.label(), source, target));
                 }
             }
         }
@@ -171,7 +171,7 @@ public class JsonComparator {
             int size = Math.max(source.size(), target.size());
             for (int i = 0; i < size; i++) {
                 JsonNode element = i < source.size() ? source.get(i) : target.get(i);
-                compare(at.element(i, element, null, mode), source.get(i), target.get(i), mode, out);
+                compare(at.element(i, i, element, null, mode), source.get(i), target.get(i), mode, out);
             }
         }
         else {
@@ -211,7 +211,7 @@ public class JsonComparator {
                     int j = candidates.poll();
                     sourcePaired[i] = true;
                     targetPaired[j] = true;
-                    compare(at.element(i, source.get(i), key, mode), source.get(i), target.get(j), mode, out);
+                    compare(at.element(i, j, source.get(i), key, mode), source.get(i), target.get(j), mode, out);
                 }
             }
         }
@@ -220,9 +220,9 @@ public class JsonComparator {
             if (sourcePaired[i]) {
                 continue;
             }
-            Cursor elementAt = at.element(i, source.get(i), key, mode);
             for (int j = 0; j < targetSize; j++) {
-                if (!targetPaired[j] && equivalent(elementAt, source.get(i), target.get(j), mode)) {
+                if (!targetPaired[j]
+                        && equivalent(at.element(i, j, source.get(i), key, mode), source.get(i), target.get(j), mode)) {
                     sourcePaired[i] = true;
                     targetPaired[j] = true;
                     break;
@@ -236,12 +236,12 @@ public class JsonComparator {
 
         for (int i = 0; i < sourceSize; i++) {
             if (!sourcePaired[i]) {
-                compare(at.element(i, source.get(i), key, mode), source.get(i), null, mode, out);
+                compare(at.element(i, i, source.get(i), key, mode), source.get(i), null, mode, out);
             }
         }
         for (int j = 0; j < targetSize; j++) {
             if (!targetPaired[j]) {
-                compare(at.element(j, target.get(j), key, mode), null, target.get(j), mode, out);
+                compare(at.element(j, j, target.get(j), key, mode), null, target.get(j), mode, out);
             }
         }
     }
@@ -287,7 +287,8 @@ public class JsonComparator {
             }
             sourcePaired[candidate.i()] = true;
             targetPaired[candidate.j()] = true;
-            compare(at.element(candidate.i(), source.get(candidate.i()), null, mode), source.get(candidate.i()),
+            compare(at.element(candidate.i(), candidate.j(), source.get(candidate.i()), null, mode),
+                    source.get(candidate.i()),
                     target.get(candidate.j()), mode, out);
         }
     }
@@ -461,18 +462,23 @@ public class JsonComparator {
      * Where the comparison is: the exact path, and the same path with every array element identified by its id
      * ({@code $.items[id=2].lines[id=7].qty}) or, without id, by its index and main scalar fields.
      */
-    private record Cursor(JsonPath path, String label, boolean element) {
+    private record Cursor(JsonPath path, JsonPath targetPath, String label, boolean element) {
 
-        static final Cursor ROOT = new Cursor(JsonPath.ROOT, "$", false);
+        static final Cursor ROOT = new Cursor(JsonPath.ROOT, JsonPath.ROOT, "$", false);
 
         Cursor field(String name) {
-            return new Cursor(path.field(name), label + JsonPath.fieldSegment(name), false);
+            return new Cursor(path.field(name), targetPath.field(name), label + JsonPath.fieldSegment(name), false);
         }
 
-        /** @param idProperty the id property used to pair this array, or {@code null} */
-        Cursor element(int index, JsonNode element, String idProperty, Mode mode) {
-            return new Cursor(path.index(index), label + describe(index, element, idProperty, mode.idProperties()),
-                    true);
+        /**
+         * @param sourceIndex  position of the element in the source array
+         * @param targetIndex  position of the paired element in the target array (same as {@code sourceIndex}
+         *                     for an element that has no counterpart)
+         * @param idProperty   the id property used to pair this array, or {@code null}
+         */
+        Cursor element(int sourceIndex, int targetIndex, JsonNode element, String idProperty, Mode mode) {
+            return new Cursor(path.index(sourceIndex), targetPath.index(targetIndex),
+                    label + describe(sourceIndex, element, idProperty, mode.idProperties()), true);
         }
 
         private static String describe(int index, JsonNode element, String idProperty, List<String> candidates) {

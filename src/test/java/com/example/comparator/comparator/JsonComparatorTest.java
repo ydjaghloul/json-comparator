@@ -600,4 +600,43 @@ class JsonComparatorTest {
                     .containsExactly(DifferenceType.MISSING_IN_TARGET, DifferenceType.MISSING_IN_SOURCE);
         }
     }
+
+    @Nested
+    class PositionInTarget {
+
+        private final JsonComparator comparator = new JsonComparator(new Comparison(null, null, null, null, null));
+
+        private List<Difference> run(String source, String target) {
+            return comparator.compare(json(source), json(target));
+        }
+
+        @Test
+        void pairedElementsAtAnotherPositionGiveTheirTargetPath() {
+            List<Difference> differences = run("{'items':[{'id':1,'q':1},{'id':2,'q':2}]}",
+                    "{'items':[{'id':2,'q':9},{'id':1,'q':1}]}");
+
+            assertThat(differences).singleElement().satisfies(d -> {
+                assertThat(d.jsonPath()).isEqualTo("$.items[1].q");
+                assertThat(d.targetPath()).isEqualTo("$.items[0].q");
+            });
+        }
+
+        @Test
+        void propertyMissingInSourceInsideAMovedElementPointsIntoTheTarget() {
+            assertThat(run("{'items':[{'id':1},{'id':2}]}", "{'items':[{'id':2,'x':1},{'id':1}]}"))
+                    .singleElement().satisfies(d -> {
+                        assertThat(d.type()).isEqualTo(DifferenceType.MISSING_IN_SOURCE);
+                        assertThat(d.jsonPath()).isEqualTo("$.items[1].x");
+                        assertThat(d.targetPath()).isEqualTo("$.items[0].x");
+                    });
+        }
+
+        @Test
+        void targetPathIsOmittedWhenItEqualsThePath() {
+            assertThat(run("{'a':{'b':1}}", "{'a':{'b':2}}")).singleElement()
+                    .satisfies(d -> assertThat(d.targetPath()).isNull());
+            assertThat(run("{'t':['a','b']}", "{'t':['a','c']}")).extracting(Difference::targetPath)
+                    .containsOnlyNulls();
+        }
+    }
 }

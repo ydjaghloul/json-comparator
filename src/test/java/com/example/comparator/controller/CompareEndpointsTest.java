@@ -223,6 +223,48 @@ class CompareEndpointsTest {
     }
 
     @Nested
+    class ReportViewer {
+
+        @Test
+        void savedRunsAndFilesAreReadable() throws Exception {
+            JsonNode report = call("/compare", null, status().isOk());
+            JsonNode different = result(report, "/customers/42/orders");
+            String sourceFile = different.get("sourceFile").asText();
+            String run = sourceFile.substring(0, sourceFile.indexOf('/'));
+
+            assertThat(json(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/reports/runs")).andExpect(status().isOk()).andReturn().getResponse()
+                    .getContentAsString()).toString()).contains(run);
+            String body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/reports/file").param("path", sourceFile)).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            assertThat(json(body)).isEqualTo(json(ORDERS_42_SOURCE));
+            // the run report can be opened by the viewer
+            JsonNode runReport = json(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/reports/file").param("path", run + "/report.json"))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(runReport.at("/summary/total").asInt()).isEqualTo(report.at("/summary/total").asInt());
+        }
+
+        @Test
+        void onlyJsonFilesBelowTheOutputFolderCanBeRead() throws Exception {
+            call("/compare", null, status().isOk());
+            for (String bad : new String[] { "../secret.json", "/etc/passwd.json", "a/../../b.json", "x\\y.json",
+                    "report.txt", "", "a//b.json", "./a.json", "../b.json" }) {
+                mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/reports/file").param("path", bad)).andExpect(status().isBadRequest());
+            }
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/reports/file").param("path", "20000101-000000/missing.json"))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        void theViewerIsServedAsStaticPages() throws Exception {
+            assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/index.html")).andExpect(status().isOk()).andReturn().getResponse()
+                    .getContentAsString()).contains("Comparison report viewer").contains("js/app.js");
+            assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/js/app.js")).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString()).contains("compare/custom");
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/css/report.css")).andExpect(status().isOk());
+        }
+    }
+
+    @Nested
     class CompareFiles {
 
         @Test

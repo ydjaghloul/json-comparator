@@ -13,23 +13,26 @@ import com.fasterxml.jackson.databind.node.IntNode;
  * whether it is missing or an actual JSON {@code null}.
  */
 @JsonInclude(JsonInclude.Include.ALWAYS)
-@JsonPropertyOrder({ "jsonPath", "location", "type", "source", "target", "message" })
-public record Difference(String jsonPath, @JsonInclude(JsonInclude.Include.NON_NULL) String location,
-        DifferenceType type, JsonNode source, JsonNode target, String message) {
+@JsonPropertyOrder({ "jsonPath", "targetPath", "location", "type", "source", "target", "message" })
+public record Difference(String jsonPath, @JsonInclude(JsonInclude.Include.NON_NULL) String targetPath,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String location, DifferenceType type, JsonNode source,
+        JsonNode target, String message) {
 
     static final String STATUS_PATH = "$status";
 
     /**
+     * @param targetPath where the value is in the target document, when that differs from {@code path} (an array
+     *                   element paired with an element at another position); not serialized otherwise
      * @param location the path with the identity of every array element on the way ({@code $.items[id=2].qty}),
      *                 or the same as {@code path} when no array is involved (then not serialized)
      */
-    public static Difference valueMismatch(String path, String location, JsonNode source, JsonNode target) {
-        return of(path, location, DifferenceType.VALUE_MISMATCH, source, target,
+    public static Difference valueMismatch(String path, String targetPath, String location, JsonNode source, JsonNode target) {
+        return of(path, targetPath, location, DifferenceType.VALUE_MISMATCH, source, target,
                 "%s: source=%s, target=%s".formatted(shown(path, location), render(source), render(target)));
     }
 
-    public static Difference typeMismatch(String path, String location, JsonNode source, JsonNode target) {
-        return of(path, location, DifferenceType.TYPE_MISMATCH, source, target,
+    public static Difference typeMismatch(String path, String targetPath, String location, JsonNode source, JsonNode target) {
+        return of(path, targetPath, location, DifferenceType.TYPE_MISMATCH, source, target,
                 "%s: type differs, source=%s (%s), target=%s (%s)".formatted(shown(path, location), render(source),
                         typeName(source), render(target), typeName(target)));
     }
@@ -37,20 +40,21 @@ public record Difference(String jsonPath, @JsonInclude(JsonInclude.Include.NON_N
     public static Difference missingInTarget(String path, String location, JsonNode source, boolean arrayElement) {
         String what = arrayElement ? "element " + render(source) + " is in source but has no match in target"
                 : "present in source (" + render(source) + "), missing in target";
-        return of(path, location, DifferenceType.MISSING_IN_TARGET, source, null,
+        return of(path, null, location, DifferenceType.MISSING_IN_TARGET, source, null,
                 shown(path, location) + ": " + what);
     }
 
-    public static Difference missingInSource(String path, String location, JsonNode target, boolean arrayElement) {
+    public static Difference missingInSource(String path, String targetPath, String location, JsonNode target, boolean arrayElement) {
         String what = arrayElement ? "element " + render(target) + " is in target but has no match in source"
                 : "missing in source, present in target (" + render(target) + ")";
-        return of(path, location, DifferenceType.MISSING_IN_SOURCE, null, target,
+        return of(path, targetPath, location, DifferenceType.MISSING_IN_SOURCE, null, target,
                 shown(path, location) + ": " + what);
     }
 
-    private static Difference of(String path, String location, DifferenceType type, JsonNode source,
-            JsonNode target, String message) {
-        return new Difference(path, path.equals(location) ? null : location, type, source, target, message);
+    private static Difference of(String path, String targetPath, String location, DifferenceType type,
+            JsonNode source, JsonNode target, String message) {
+        return new Difference(path, path.equals(targetPath) ? null : targetPath,
+                path.equals(location) ? null : location, type, source, target, message);
     }
 
     private static String shown(String path, String location) {
@@ -58,7 +62,7 @@ public record Difference(String jsonPath, @JsonInclude(JsonInclude.Include.NON_N
     }
 
     public static Difference statusMismatch(int sourceStatus, int targetStatus) {
-        return new Difference(STATUS_PATH, null, DifferenceType.STATUS_MISMATCH, IntNode.valueOf(sourceStatus),
+        return new Difference(STATUS_PATH, null, null, DifferenceType.STATUS_MISMATCH, IntNode.valueOf(sourceStatus),
                 IntNode.valueOf(targetStatus), STATUS_PATH + ": source=" + sourceStatus + ", target=" + targetStatus);
     }
 
