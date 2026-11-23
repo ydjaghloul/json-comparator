@@ -1,5 +1,10 @@
-package com.example.comparator;
+package com.example.comparator.comparator;
 
+import com.example.comparator.model.CompareOptions;
+import com.example.comparator.model.Difference;
+import com.example.comparator.model.DifferenceType;
+import com.example.comparator.model.NullMatching;
+import com.example.comparator.model.TypeMatching;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -9,9 +14,9 @@ import java.util.List;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import com.example.comparator.ComparatorProperties.ArrayOrder;
-import com.example.comparator.ComparatorProperties.Comparison;
-import com.example.comparator.ComparatorProperties.UnorderedArray;
+import com.example.comparator.config.ComparatorProperties.ArrayOrder;
+import com.example.comparator.config.ComparatorProperties.Comparison;
+import com.example.comparator.config.ComparatorProperties.UnorderedArray;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -542,6 +547,57 @@ class JsonComparatorTest {
         void unmatchedObjectsAreIdentifiedById() {
             assertThat(run("[{'id':1},{'id':2}]", "[{'id':2},{'id':3}]")).extracting(Difference::location)
                     .containsExactly("$[id=1]", "$[id=3]");
+        }
+    }
+
+    @Nested
+    class PropertyLevelDetail {
+
+        private final JsonComparator comparator = new JsonComparator(new Comparison(null, null, null, null, null));
+
+        private List<Difference> run(String source, String target) {
+            return comparator.compare(json(source), json(target));
+        }
+
+        @Test
+        void similarObjectsWithoutIdAreComparedPropertyByProperty() {
+            List<Difference> differences = run(
+                    "{'rows':[{'name':'bob','city':'Paris','age':3},{'name':'eve','city':'Rome','age':9}]}",
+                    "{'rows':[{'name':'eve','city':'Rome','age':9},{'name':'bob','city':'Paris','age':4}]}");
+
+            assertThat(differences).singleElement().satisfies(d -> {
+                assertThat(d.type()).isEqualTo(DifferenceType.VALUE_MISMATCH);
+                assertThat(d.jsonPath()).isEqualTo("$.rows[0].age");
+                assertThat(d.location()).isEqualTo("$.rows[0: name=bob, city=Paris, age=3].age");
+                assertThat(d.source().intValue()).isEqualTo(3);
+                assertThat(d.target().intValue()).isEqualTo(4);
+            });
+        }
+
+        @Test
+        void missingAndExtraPropertiesAreNamedToo() {
+            assertThat(run("[{'a':1,'b':2,'c':3}]", "[{'a':1,'b':2,'d':4}]")).extracting(Difference::jsonPath,
+                    Difference::type).containsExactlyInAnyOrder(tuple("$[0].c", DifferenceType.MISSING_IN_TARGET),
+                            tuple("$[0].d", DifferenceType.MISSING_IN_SOURCE));
+        }
+
+        @Test
+        void nestedPropertiesAreNamedWithTheirFullPath() {
+            assertThat(run("[{'name':'bob','address':{'city':'Paris','zip':'75'}}]",
+                    "[{'name':'bob','address':{'city':'Lyon','zip':'75'}}]")).singleElement()
+                    .extracting(Difference::jsonPath).isEqualTo("$[0].address.city");
+        }
+
+        @Test
+        void objectsWithLittleInCommonStayMissingAndExtra() {
+            assertThat(run("[{'a':1,'b':2,'c':3}]", "[{'a':1,'x':7,'y':8}]")).extracting(Difference::type)
+                    .containsExactly(DifferenceType.MISSING_IN_TARGET, DifferenceType.MISSING_IN_SOURCE);
+        }
+
+        @Test
+        void objectsWithDifferentIdsAreNeverPaired() {
+            assertThat(run("[{'id':1,'n':'a','m':'b'}]", "[{'id':2,'n':'a','m':'b'}]")).extracting(Difference::type)
+                    .containsExactly(DifferenceType.MISSING_IN_TARGET, DifferenceType.MISSING_IN_SOURCE);
         }
     }
 }

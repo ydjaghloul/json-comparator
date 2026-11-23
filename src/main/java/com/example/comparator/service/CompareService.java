@@ -1,5 +1,12 @@
-package com.example.comparator;
+package com.example.comparator.service;
 
+import com.example.comparator.client.RestClientFactory;
+import com.example.comparator.comparator.JsonComparator;
+import com.example.comparator.config.ComparatorProperties;
+import com.example.comparator.model.CompareOptions;
+import com.example.comparator.model.CompareReport;
+import com.example.comparator.model.Difference;
+import com.example.comparator.model.PathResult;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,6 +14,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StreamUtils;
 import org.springframework.web.client.RestClient;
 
-import com.example.comparator.FileStorageService.RunFolder;
+import com.example.comparator.service.FileStorageService.RunFolder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -65,7 +73,19 @@ public class CompareService {
 
     /** Calls the configured services for every configured path. A failing path never stops the run. */
     public CompareReport compareAll(CompareOptions options) {
-        return compareLive(sourceClient, targetClient, properties.paths(), resolve(options));
+        return compareAll(options, Map.of(), Map.of());
+    }
+
+    /** Same, with extra headers for this run only (sent on top of the configured ones). */
+    public CompareReport compareAll(CompareOptions options, Map<String, String> sourceHeaders,
+            Map<String, String> targetHeaders) {
+        if (sourceHeaders.isEmpty() && targetHeaders.isEmpty()) {
+            return compareLive(sourceClient, targetClient, properties.paths(), resolve(options));
+        }
+        return compareLive(clientFactory.sourceClient(properties.sourceService().baseUrl(), sourceHeaders),
+                clientFactory.targetClient(properties.targetService().baseUrl(), properties.targetService(),
+                        targetHeaders),
+                properties.paths(), resolve(options));
     }
 
     /**
@@ -74,8 +94,14 @@ public class CompareService {
      */
     public CompareReport compareCustom(String sourceBaseUrl, String targetBaseUrl, List<String> paths,
             CompareOptions options) {
-        RestClient source = clientFactory.sourceClient(sourceBaseUrl);
-        RestClient target = clientFactory.targetClient(targetBaseUrl, properties.targetService());
+        return compareCustom(sourceBaseUrl, targetBaseUrl, paths, options, Map.of(), Map.of());
+    }
+
+    /** Same, with headers given for this call: {@code sourceHeaders} to the source, {@code targetHeaders} to the target. */
+    public CompareReport compareCustom(String sourceBaseUrl, String targetBaseUrl, List<String> paths,
+            CompareOptions options, Map<String, String> sourceHeaders, Map<String, String> targetHeaders) {
+        RestClient source = clientFactory.sourceClient(sourceBaseUrl, sourceHeaders);
+        RestClient target = clientFactory.targetClient(targetBaseUrl, properties.targetService(), targetHeaders);
         return compareLive(source, target, paths, resolve(options));
     }
 

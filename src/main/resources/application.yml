@@ -19,11 +19,17 @@ source_service:
   read-timeout: 30s
   # Other source base URLs that may receive the credentials when given to POST /compare/custom
   trusted-base-urls: []
+  # Optional extra headers sent on every call to a trusted source URL (values are secrets, never logged or saved).
+  # Headers for a single run can also be given in the request body (sourceHeaders / targetHeaders).
+  headers: {}
+  #  Authorization: Bearer ${SOURCE_TOKEN}
 
 target_service:
   base-url: https://target.example.com
   connect-timeout: 5s
   read-timeout: 30s
+  # Optional extra headers sent to target_service.base-url only
+  headers: {}
 
 paths:
   - /customers/42/orders

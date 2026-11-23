@@ -1,8 +1,10 @@
-package com.example.comparator;
+package com.example.comparator.client;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
+
+import com.example.comparator.config.ComparatorProperties;
 
 /** One {@link RestClient} bean per configured service, each with its own base URL and timeouts. */
 @Configuration(proxyBeanMethods = false)

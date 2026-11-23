@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.model;
 
 import java.util.Locale;
 
@@ -23,25 +23,25 @@ public record Difference(String jsonPath, @JsonInclude(JsonInclude.Include.NON_N
      * @param location the path with the identity of every array element on the way ({@code $.items[id=2].qty}),
      *                 or the same as {@code path} when no array is involved (then not serialized)
      */
-    static Difference valueMismatch(String path, String location, JsonNode source, JsonNode target) {
+    public static Difference valueMismatch(String path, String location, JsonNode source, JsonNode target) {
         return of(path, location, DifferenceType.VALUE_MISMATCH, source, target,
                 "%s: source=%s, target=%s".formatted(shown(path, location), render(source), render(target)));
     }
 
-    static Difference typeMismatch(String path, String location, JsonNode source, JsonNode target) {
+    public static Difference typeMismatch(String path, String location, JsonNode source, JsonNode target) {
         return of(path, location, DifferenceType.TYPE_MISMATCH, source, target,
                 "%s: type differs, source=%s (%s), target=%s (%s)".formatted(shown(path, location), render(source),
                         typeName(source), render(target), typeName(target)));
     }
 
-    static Difference missingInTarget(String path, String location, JsonNode source, boolean arrayElement) {
+    public static Difference missingInTarget(String path, String location, JsonNode source, boolean arrayElement) {
         String what = arrayElement ? "element " + render(source) + " is in source but has no match in target"
                 : "present in source (" + render(source) + "), missing in target";
         return of(path, location, DifferenceType.MISSING_IN_TARGET, source, null,
                 shown(path, location) + ": " + what);
     }
 
-    static Difference missingInSource(String path, String location, JsonNode target, boolean arrayElement) {
+    public static Difference missingInSource(String path, String location, JsonNode target, boolean arrayElement) {
         String what = arrayElement ? "element " + render(target) + " is in target but has no match in source"
                 : "missing in source, present in target (" + render(target) + ")";
         return of(path, location, DifferenceType.MISSING_IN_SOURCE, null, target,
@@ -57,7 +57,7 @@ public record Difference(String jsonPath, @JsonInclude(JsonInclude.Include.NON_N
         return location == null ? path : location;
     }
 
-    static Difference statusMismatch(int sourceStatus, int targetStatus) {
+    public static Difference statusMismatch(int sourceStatus, int targetStatus) {
         return new Difference(STATUS_PATH, null, DifferenceType.STATUS_MISMATCH, IntNode.valueOf(sourceStatus),
                 IntNode.valueOf(targetStatus), STATUS_PATH + ": source=" + sourceStatus + ", target=" + targetStatus);
     }

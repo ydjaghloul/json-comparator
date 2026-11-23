@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.model;
 
 import java.util.List;
 
@@ -10,7 +10,7 @@ public record CompareReport(Summary summary, List<PathResult> results) {
     }
 
     /** {@code options} must be resolved (no null field): the report states the options actually used. */
-    static CompareReport of(List<PathResult> results, CompareOptions options) {
+    public static CompareReport of(List<PathResult> results, CompareOptions options) {
         int identical = 0;
         int different = 0;
         int errors = 0;

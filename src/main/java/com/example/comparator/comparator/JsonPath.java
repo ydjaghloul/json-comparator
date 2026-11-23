@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.comparator;
 
 import java.util.ArrayList;
 import java.util.List;

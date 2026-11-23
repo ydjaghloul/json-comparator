@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.model;
 
 /**
  * How a property that is {@code null} on one side and absent on the other is treated.

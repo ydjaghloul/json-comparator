@@ -1,5 +1,6 @@
-package com.example.comparator;
+package com.example.comparator.service;
 
+import com.example.comparator.config.ComparatorProperties;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;

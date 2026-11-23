@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -186,7 +186,24 @@ class CompareEndpointsTest {
         }
 
         @Test
+        void compareAcceptsHeadersInTheBodyForThisRunOnly() throws Exception {
+            int sourceBefore = SERVICES.requests("source").size();
+
+            call("/compare", "{\"sourceHeaders\":{\"X-Run\":\"r1\"},\"targetHeaders\":{\"X-Run\":\"r2\"}}",
+                    status().isOk());
+            call("/compare", null, status().isOk());
+
+            var sourceRequests = SERVICES.requests("source");
+            assertThat(sourceRequests.subList(sourceBefore, sourceRequests.size()))
+                    .anySatisfy(headers -> assertThat(headers.get("x-run")).isEqualTo("r1"))
+                    .anySatisfy(headers -> assertThat(headers).doesNotContainKey("x-run"));
+            assertThat(SERVICES.requests("target")).anySatisfy(headers -> assertThat(headers.get("x-run")).isEqualTo("r2"));
+            call("/compare", "{\"sourceHeaders\":{\"Host\":\"x\"}}", status().isBadRequest());
+        }
+
+        @Test
         void credentialsAreOnlySentToSourceAndNeverSaved() throws Exception {
+            SERVICES.clearRequests(); // other tests send their own headers
             call("/compare", null, status().isOk());
 
             assertThat(SERVICES.requests("source")).isNotEmpty().allSatisfy(headers -> {
@@ -381,6 +398,68 @@ class CompareEndpointsTest {
                 assertThat(headers).doesNotContainKey("client_id");
                 assertThat(headers).doesNotContainKey("client_secret");
             });
+        }
+
+        @Test
+        void headersOfTheRequestAreSentToTheirSideOnlyAndNeverSavedOrReturned() throws Exception {
+            int altBefore = SERVICES.requests("alt").size();
+            int targetBefore = SERVICES.requests("target").size();
+            ObjectNode request = (ObjectNode) json(customRequest(SERVICES.baseUrl() + "/alt",
+                    SERVICES.baseUrl() + "/target", "/products/1001"));
+            request.putObject("sourceHeaders").put("Authorization", "Bearer tok-source-123").put("X-Trace", "t1");
+            request.putObject("targetHeaders").put("X-Api-Key", "key-target-456");
+
+            JsonNode report = call("/compare/custom", request.toString(), status().isOk());
+
+            assertThat(SERVICES.requests("alt").subList(altBefore, SERVICES.requests("alt").size()))
+                    .singleElement().satisfies(headers -> {
+                        assertThat(headers.get("authorization")).isEqualTo("Bearer tok-source-123");
+                        assertThat(headers.get("x-trace")).isEqualTo("t1");
+                        assertThat(headers).doesNotContainKey("x-api-key");
+                        assertThat(headers).doesNotContainKey("client_id"); // untrusted source: no credentials
+                    });
+            assertThat(SERVICES.requests("target").subList(targetBefore, SERVICES.requests("target").size()))
+                    .singleElement().satisfies(headers -> {
+                        assertThat(headers.get("x-api-key")).isEqualTo("key-target-456");
+                        assertThat(headers).doesNotContainKey("authorization");
+                    });
+            assertThat(report.toString()).doesNotContain("tok-source-123").doesNotContain("key-target-456");
+            try (var files = Files.walk(OUTPUT_DIR)) {
+                for (java.nio.file.Path file : files.filter(Files::isRegularFile).toList()) {
+                    assertThat(Files.readString(file)).doesNotContain("tok-source-123")
+                            .doesNotContain("key-target-456");
+                }
+            }
+        }
+
+        @Test
+        void aRequestHeaderWinsOverTheConfiguredCredentialWithTheSameName() throws Exception {
+            int before = SERVICES.requests("source").size();
+            ObjectNode request = (ObjectNode) json(customRequest(SERVICES.baseUrl() + "/source",
+                    SERVICES.baseUrl() + "/target", "/products/1001"));
+            request.putObject("sourceHeaders").put("Client_Id", "other-client");
+
+            call("/compare/custom", request.toString(), status().isOk());
+
+            assertThat(SERVICES.requests("source").subList(before, SERVICES.requests("source").size()))
+                    .singleElement().satisfies(headers -> {
+                        assertThat(headers.get("client_id")).isEqualTo("other-client");
+                        assertThat(headers.get("client_secret")).isEqualTo(CLIENT_SECRET);
+                    });
+        }
+
+        @Test
+        void invalidHeadersAreRejectedWithoutEchoingTheirValue() throws Exception {
+            for (String[] bad : new String[][] { { "bad name", "v" }, { "Host", "evil" },
+                    { "X-A", "line1\r\nInjected: yes" }, { "", "v" } }) {
+                ObjectNode request = (ObjectNode) json(customRequest(SERVICES.baseUrl() + "/alt",
+                        SERVICES.baseUrl() + "/target", "/products/1001"));
+                request.putObject("sourceHeaders").put(bad[0], bad[1]);
+                String body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/compare/custom").contentType(MediaType.APPLICATION_JSON)
+                        .content(request.toString())).andExpect(status().isBadRequest()).andReturn().getResponse()
+                        .getContentAsString();
+                assertThat(body).doesNotContain("evil").doesNotContain("Injected");
+            }
         }
 
         @Test
@@ -694,6 +773,10 @@ class CompareEndpointsTest {
 
         List<Map<String, String>> requests(String side) {
             return requests.getOrDefault(side, List.of());
+        }
+
+        void clearRequests() {
+            requests.clear();
         }
 
         void stop() {

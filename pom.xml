@@ -13,7 +13,7 @@
 
     <groupId>com.example</groupId>
     <artifactId>rest-service-comparator</artifactId>
-    <version>0.6.0</version>
+    <version>0.7.0</version>
     <name>rest-service-comparator</name>
     <description>Calls two versions of a REST service and reports semantic JSON differences</description>
 

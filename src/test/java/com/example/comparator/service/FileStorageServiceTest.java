@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,9 +15,10 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-import com.example.comparator.ComparatorProperties.Output;
-import com.example.comparator.ComparatorProperties.ServiceProperties;
-import com.example.comparator.FileStorageService.RunFolder;
+import com.example.comparator.config.ComparatorProperties;
+import com.example.comparator.config.ComparatorProperties.Output;
+import com.example.comparator.config.ComparatorProperties.ServiceProperties;
+import com.example.comparator.service.FileStorageService.RunFolder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -36,8 +37,8 @@ class FileStorageServiceTest {
     void setUp() throws Exception {
         outputDir = Files.createDirectories(tempDir.resolve("output"));
         ComparatorProperties properties = new ComparatorProperties(
-                new ServiceProperties("http://source", "id", "secret", null, null, null),
-                new ServiceProperties("http://target", null, null, null, null, null),
+                new ServiceProperties("http://source", "id", "secret", null, null, null, null),
+                new ServiceProperties("http://target", null, null, null, null, null, null),
                 List.of(), new Output(outputDir.toString()), null);
         storage = new FileStorageService(properties, MAPPER, CLOCK);
     }
@@ -101,8 +102,8 @@ class FileStorageServiceTest {
     void saveFailureIsNotFatal() throws Exception {
         Path notADirectory = Files.writeString(tempDir.resolve("file"), "x");
         ComparatorProperties properties = new ComparatorProperties(
-                new ServiceProperties("http://source", null, null, null, null, null),
-                new ServiceProperties("http://target", null, null, null, null, null),
+                new ServiceProperties("http://source", null, null, null, null, null, null),
+                new ServiceProperties("http://target", null, null, null, null, null, null),
                 List.of(), new Output(notADirectory.resolve("sub").toString()), null);
         FileStorageService broken = new FileStorageService(properties, MAPPER, CLOCK);
 
