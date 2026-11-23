@@ -9,10 +9,13 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +38,7 @@ public class FileStorageService {
 
     private static final Logger log = LoggerFactory.getLogger(FileStorageService.class);
     private static final DateTimeFormatter RUN_FOLDER_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+    private static final Pattern RUN_NAME = Pattern.compile("\\d{8}-\\d{6}(-\\d+)?");
     private static final Pattern UNSAFE_CHARACTERS = Pattern.compile("[^A-Za-z0-9._-]");
 
     private final Path root;
@@ -113,6 +117,54 @@ public class FileStorageService {
             return null;
         }
         return root.relativize(file.toAbsolutePath().normalize()).toString().replace(File.separatorChar, '/');
+    }
+
+    /** Names of the run folders under {@code output.directory}, newest first. */
+    public List<String> listRuns() {
+        if (!Files.isDirectory(root)) {
+            return List.of();
+        }
+        try (Stream<Path> children = Files.list(root)) {
+            return children.filter(Files::isDirectory).map(p -> p.getFileName().toString())
+                    .filter(name -> RUN_NAME.matcher(name).matches()).sorted(Comparator.reverseOrder()).toList();
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Could not list runs under {}: {}", root, e.toString());
+            return List.of();
+        }
+    }
+
+    /**
+     * Reads a JSON file saved by a run. Only {@code .json} files below {@code output.directory} can be read: a
+     * path with {@code ..}, a backslash, a leading {@code /} or a link leaving the folder is refused.
+     *
+     * @param relativePath as returned in {@code sourceFile}, {@code targetFile}, {@code reportFile}
+     * @return the file content, or empty when the file does not exist
+     * @throws IllegalArgumentException if the path is not an acceptable saved file path
+     */
+    public Optional<byte[]> readSaved(String relativePath) {
+        if (relativePath == null || relativePath.isBlank() || relativePath.startsWith("/")
+                || relativePath.contains("\\") || relativePath.indexOf('\0') >= 0
+                || !relativePath.endsWith(".json")) {
+            throw new IllegalArgumentException("path must be a relative .json file name");
+        }
+        for (String segment : relativePath.split("/", -1)) {
+            if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
+                throw new IllegalArgumentException("path must be a relative .json file name");
+            }
+        }
+        Path file = root.resolve(relativePath).normalize();
+        try {
+            if (!file.startsWith(root) || !Files.isRegularFile(file)
+                    || !file.toRealPath().startsWith(root.toRealPath())) {
+                return Optional.empty();
+            }
+            return Optional.of(Files.readAllBytes(file));
+        }
+        catch (IOException e) {
+            log.warn("Could not read {}: {}", file, e.toString());
+            return Optional.empty();
+        }
     }
 
     public Path root() {

@@ -1,6 +1,6 @@
 # REST Service Comparator
 
-Full specification: [SPEC_v0.7.md](SPEC_v0.7.md).
+Full specification: [SPEC_v0.8.md](SPEC_v0.8.md).
 
 Spring Boot 3.5 / Java 17 app that calls two versions of a REST service with the same relative paths and reports semantic JSON differences.
 
@@ -23,11 +23,11 @@ Credentials are never logged and never written to saved files. If a variable is 
 mvn clean verify
 export CLIENT_ID=... CLIENT_SECRET=...
 mvn spring-boot:run
-# or: java -jar target/rest-service-comparator-0.7.0.jar
+# or: java -jar target/rest-service-comparator-0.8.0.jar
 ```
 
 ## Code layout
-`controller` (HTTP API) → `service` (use cases, saved files) → `client` (calls to the services) / `comparator` (JSON comparison) → `config` → `model` (records and enums). Details in [SPEC_v0.7.md](SPEC_v0.7.md), section 8.
+`controller` (HTTP API) → `service` (use cases, saved files) → `client` (calls to the services) / `comparator` (JSON comparison) → `config` → `model` (records and enums). Details in [SPEC_v0.8.md](SPEC_v0.8.md), section 8.
 
 ## Configuration (`src/main/resources/application.yml`)
 - `source_service.base-url`, `target_service.base-url` (required)
@@ -44,6 +44,9 @@ mvn spring-boot:run
 
 ## Array comparison
 By default the order of array elements is ignored. Objects are paired by an id property (see `comparison.id-properties`, or the `idProperties` query parameter, e.g. `idProperties=ref,code`), so a changed field is reported as a field difference at the source index (`$.items[1].qty`) instead of as a missing + extra element. Use `orderStrict=true` to compare by position. Both parameters are accepted by every endpoint, and the report summary states the `orderStrict` actually used.
+
+## Report viewer
+Open **http://localhost:8080/** for a visual preview of any report. Paste or drop the JSON returned by `/compare`, `/compare/custom`, `/compare/files` or `/compare/json`, or open a saved run from the list. You get an overview, **one page per path**, every difference with its exact location, and the **source and target side by side with the differing parts highlighted** (red: only in source, green: only in target, amber: value or type differs). For live runs the full documents are loaded from the saved files (`GET /reports/file`); otherwise attach the two JSON files on the path page. Plain HTML, CSS and JavaScript served by the application: no build step. A built-in sample can be tried from the start page.
 
 ## Headers
 Besides the configured credentials, extra HTTP headers can be given **per request**, without restarting the app:
