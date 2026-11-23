@@ -274,11 +274,8 @@ when a layer imports a layer it must not depend on. Tests sit in the same packag
 - **Viewer API**: `/reports/runs` lists runs; `/reports/file` returns a saved file; traversal attempts, other
   extensions and unknown files are refused (`400` / `404`); the static pages are served.
 - **targetPath**: moved array elements give their target position, omitted when equal to `jsonPath`.
-- **Viewer** (`ui-tests/viewer.e2e.js`, Playwright, run by hand against a running application, not part of the Maven
-  build): request validation, running a comparison from the form with options and headers (received by the right
-  service only), overview, path page, highlighting on both sides for a moved element, next difference, error path,
-  a request rejected by the server, back to the report, saved run, report file, no script injection from a hostile
-  report, invalid JSON refused, dark theme, no horizontal scroll on a phone, no console error.
+- **Viewer**: the static pages are served and the script targets `POST /compare/custom` (Maven test). The page logic was
+  also checked by hand in a browser; there is no Node or npm in the project.
 - **Layering**: `LayeringTest` enforces the dependency directions of section 9.
 - **Symmetry**: randomized source/target swap gives the mirrored result for all option combinations.
 - **Endpoints** (fake source/target services): full detail, `ERROR` cases, `STATUS_MISMATCH`, saved files,

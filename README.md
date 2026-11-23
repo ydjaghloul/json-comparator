@@ -53,12 +53,6 @@ Open **http://localhost:8080/**. Plain HTML, CSS and JavaScript served by the ap
 
 You get an overview, **one page per path**, every difference with its exact location, and the **source and target side by side with the differing parts highlighted** (red: only in source, green: only in target, amber: value or type differs). For live runs the full documents are loaded from the saved files (`GET /reports/file`); otherwise attach the two JSON files on the path page. A built-in sample can be tried from *Open a report*. Light and dark theme, responsive.
 
-Browser test of the viewer (needs Node and Playwright, the application running):
-```bash
-npm i playwright && npx playwright install chromium
-node ui-tests/viewer.e2e.js        # BASE_URL=http://localhost:8080 by default
-```
-
 ## Headers
 Besides the configured credentials, extra HTTP headers can be given **per request**, without restarting the app:
 ```bash
