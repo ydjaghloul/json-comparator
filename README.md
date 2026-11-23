@@ -27,7 +27,7 @@ mvn spring-boot:run
 ```
 
 ## Code layout
-`controller` (HTTP API) → `service` (use cases, saved files) → `client` (calls to the services) / `comparator` (JSON comparison) → `config` → `model` (records and enums). Details in [SPEC_v0.8.md](SPEC_v0.8.md), section 8.
+`controller` (HTTP API) → `service` (use cases, saved files) → `client` (calls to the services) / `comparator` (JSON comparison) → `config` → `model` (records and enums). Details in [SPEC_v0.8.md](SPEC_v0.8.md), section 9.
 
 ## Configuration (`src/main/resources/application.yml`)
 - `source_service.base-url`, `target_service.base-url` (required)
