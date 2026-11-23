@@ -258,7 +258,8 @@ class CompareEndpointsTest {
         void theViewerIsServedAsStaticPages() throws Exception {
             assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/index.html")).andExpect(status().isOk()).andReturn().getResponse()
                     .getContentAsString()).contains("Comparison report viewer").contains("js/app.js");
-            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/js/app.js")).andExpect(status().isOk());
+            assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/js/app.js")).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString()).contains("compare/custom");
             mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/css/report.css")).andExpect(status().isOk());
         }
     }

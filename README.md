@@ -46,7 +46,18 @@ mvn spring-boot:run
 By default the order of array elements is ignored. Objects are paired by an id property (see `comparison.id-properties`, or the `idProperties` query parameter, e.g. `idProperties=ref,code`), so a changed field is reported as a field difference at the source index (`$.items[1].qty`) instead of as a missing + extra element. Use `orderStrict=true` to compare by position. Both parameters are accepted by every endpoint, and the report summary states the `orderStrict` actually used.
 
 ## Report viewer
-Open **http://localhost:8080/** for a visual preview of any report. Paste or drop the JSON returned by `/compare`, `/compare/custom`, `/compare/files` or `/compare/json`, or open a saved run from the list. You get an overview, **one page per path**, every difference with its exact location, and the **source and target side by side with the differing parts highlighted** (red: only in source, green: only in target, amber: value or type differs). For live runs the full documents are loaded from the saved files (`GET /reports/file`); otherwise attach the two JSON files on the path page. Plain HTML, CSS and JavaScript served by the application: no build step. A built-in sample can be tried from the start page.
+Open **http://localhost:8080/**. Plain HTML, CSS and JavaScript served by the application: no build step.
+
+- **Run a comparison**: type or paste the JSON body of `POST /compare/custom` (both base URLs, the paths, optional `sourceHeaders` / `targetHeaders`), pick the options if needed (type matching, null matching, array order, id properties), and press *Run comparison*. The report opens straight away. *Insert an example* fills the editor.
+- **Open a report**: load an earlier result, from a saved run (live runs are saved on the server), a `.json` file (choose or drop it anywhere on the page), or pasted JSON.
+
+You get an overview, **one page per path**, every difference with its exact location, and the **source and target side by side with the differing parts highlighted** (red: only in source, green: only in target, amber: value or type differs). For live runs the full documents are loaded from the saved files (`GET /reports/file`); otherwise attach the two JSON files on the path page. A built-in sample can be tried from *Open a report*. Light and dark theme, responsive.
+
+Browser test of the viewer (needs Node and Playwright, the application running):
+```bash
+npm i playwright && npx playwright install chromium
+node ui-tests/viewer.e2e.js        # BASE_URL=http://localhost:8080 by default
+```
 
 ## Headers
 Besides the configured credentials, extra HTTP headers can be given **per request**, without restarting the app:

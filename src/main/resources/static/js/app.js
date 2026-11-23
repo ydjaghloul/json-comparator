@@ -10,7 +10,8 @@
   var MAX_LINES = 20000;
 
   var state = {
-    report: null, name: '', docs: {}, status: 'ALL', query: '', types: {}, theme: null
+    report: null, name: '', docs: {}, status: 'ALL', query: '', types: {}, theme: null,
+    startTab: 'run', stash: null, request: null, running: null
   };
   var token = 0;
   var app = document.getElementById('app');
@@ -173,7 +174,8 @@
       h('a', { class: 'brand', href: '#/' }, h('span', { class: 'brand-mark' }, svg('M3 3h4v10H3zM9 3h4v10H9z')), 'Comparison report'),
       state.name ? h('span', { class: 'report-name', title: state.name, text: state.name }) : null,
       h('span', { class: 'spacer' }),
-      h('button', { class: 'btn small', onclick: function () { state.report = null; location.hash = '#/'; render(); } }, 'Open another report'),
+      h('button', { class: 'btn small primary', onclick: function () { goStart('run'); } }, '▶ New comparison'),
+      h('button', { class: 'btn small', onclick: function () { goStart('open'); } }, 'Open a report'),
       h('button', {
         class: 'btn small ghost', title: 'Toggle dark mode', 'aria-label': 'Toggle dark mode', onclick: function () {
           var next = isDark() ? 'light' : 'dark'; applyTheme(next); store('viewer-theme', next);
@@ -567,39 +569,162 @@
     return h('span', null, input, h('label', { class: 'btn small', for: 'pick-' + side, text: 'Attach ' + side + '…' }));
   }
 
-  /* ---------- landing ---------- */
-  function landing() {
-    var paste = h('textarea', { class: 'paste', placeholder: 'Paste the JSON returned by POST /compare, /compare/custom, /compare/files or /compare/json…', 'aria-label': 'Report JSON' });
+  /* ---------- start page: run a comparison / open a report ---------- */
+  function goStart(tab) {
+    if (state.report) state.stash = { report: state.report, name: state.name, docs: state.docs, status: state.status, query: state.query };
+    state.report = null; state.startTab = tab;
+    location.hash = '#/'; render();
+  }
+  function restoreStash() {
+    var st = state.stash; if (!st) return;
+    state.report = st.report; state.name = st.name; state.docs = st.docs; state.status = st.status; state.query = st.query;
+    render();
+  }
+
+  var EXAMPLE_REQUEST = {
+    sourceBaseUrl: 'https://source.example.com',
+    targetBaseUrl: 'https://target.example.com',
+    paths: ['/customers/42/orders', '/products/1001'],
+    sourceHeaders: { Authorization: 'Bearer <token>' },
+    targetHeaders: { 'X-Api-Key': '<key>' }
+  };
+
+  /** Validates the request JSON the same way the server does, to answer before any call. */
+  function checkRequest(text) {
+    var body;
+    try { body = JSON.parse(text); } catch (e) { return { error: 'Not valid JSON: ' + e.message }; }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'The request must be a JSON object.' };
+    var badUrl = ['sourceBaseUrl', 'targetBaseUrl'].filter(function (k) { return !/^https?:\/\/[^\s/]+/i.test(String(body[k] || '')); })[0];
+    if (badUrl) return { error: badUrl + ' must be an absolute http or https URL.' };
+    if (!Array.isArray(body.paths) || !body.paths.length) return { error: 'paths must be a non-empty list.' };
+    if (body.paths.some(function (p) { return typeof p !== 'string' || !p.trim(); })) return { error: 'paths must not contain blank entries.' };
+    return { body: body };
+  }
+
+  function runComparison(text, options, ui) {
+    var checked = checkRequest(text);
+    if (checked.error) { ui.fail(checked.error); return; }
+    var q = [];
+    if (options.typeMatching) q.push('typeMatching=' + options.typeMatching);
+    if (options.nullMatching) q.push('nullMatching=' + options.nullMatching);
+    if (options.orderStrict) q.push('orderStrict=' + options.orderStrict);
+    if (options.idProperties) q.push('idProperties=' + encodeURIComponent(options.idProperties));
+    var controller = new AbortController();
+    state.running = controller;
+    ui.busy(true);
+    var started = Date.now();
+    fetch('compare/custom' + (q.length ? '?' + q.join('&') : ''), {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: text, signal: controller.signal
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var data = null; try { data = JSON.parse(t); } catch (e) { /* not JSON */ }
+        if (!r.ok) throw new Error((data && (data.detail || data.message || data.error)) || ('HTTP ' + r.status));
+        if (!data) throw new Error('The server did not return a report.');
+        return data;
+      });
+    }).then(function (data) {
+      state.request = text; state.running = null;
+      var secs = ((Date.now() - started) / 1000).toFixed(1);
+      loadReport(data, 'live run · ' + new Date().toLocaleTimeString() + ' · ' + secs + 's');
+    }).catch(function (e) {
+      state.running = null; ui.busy(false);
+      ui.fail(e.name === 'AbortError' ? 'Comparison cancelled.' : e.message);
+    });
+  }
+
+  function runPanel() {
+    var editor = h('textarea', {
+      class: 'editor', spellcheck: 'false', autocapitalize: 'off', 'aria-label': 'Request body of POST /compare/custom',
+      placeholder: JSON.stringify(EXAMPLE_REQUEST, null, 2)
+    });
+    editor.value = state.request || '';
+    var status = h('div', { class: 'form-status', role: 'status' });
+    var errorBox = h('div', { class: 'banner err', role: 'alert', style: 'display:none' });
+    function validate() {
+      if (!editor.value.trim()) { status.textContent = ''; status.className = 'form-status'; return; }
+      var c = checkRequest(editor.value);
+      if (c.error) { status.textContent = '✗ ' + c.error; status.className = 'form-status bad'; }
+      else { status.textContent = '✓ ' + plural(c.body.paths.length, 'path') + ' · ' + c.body.sourceBaseUrl + ' → ' + c.body.targetBaseUrl; status.className = 'form-status ok'; }
+    }
+    editor.addEventListener('input', function () { state.request = editor.value; errorBox.style.display = 'none'; validate(); });
+    validate();
+
+    function select(label, id, opts) {
+      var sel = h('select', { id: id, class: 'select' });
+      opts.forEach(function (o) { sel.appendChild(h('option', { value: o[0], text: o[1] })); });
+      return h('div', { class: 'field' }, h('label', { for: id, text: label }), sel);
+    }
+    var type = select('Type matching', 'opt-type', [['', 'Default'], ['STRICT', 'Strict'], ['LENIENT', 'Lenient ("11" = 11)']]);
+    var nul = select('Null matching', 'opt-null', [['', 'Default'], ['STRICT', 'Strict'], ['LENIENT', 'Lenient (null = absent)']]);
+    var order = select('Array order', 'opt-order', [['', 'Default'], ['false', 'Order does not matter'], ['true', 'Order is strict']]);
+    var ids = h('div', { class: 'field' }, h('label', { for: 'opt-ids', text: 'Id properties' }),
+      h('input', { id: 'opt-ids', class: 'input', placeholder: 'id,code (default: configured)', autocomplete: 'off' }));
+    var go = h('button', { class: 'btn primary big', type: 'button' }, h('span', { class: 'btn-label', text: '▶ Run comparison' }));
+    var cancel = h('button', { class: 'btn', type: 'button', style: 'display:none', text: 'Cancel', onclick: function () { if (state.running) state.running.abort(); } });
+    var ui = {
+      busy: function (on) { go.disabled = on; go.classList.toggle('loading', on); go.querySelector('.btn-label').textContent = on ? 'Comparing…' : '▶ Run comparison'; cancel.style.display = on ? '' : 'none'; if (on) errorBox.style.display = 'none'; },
+      fail: function (msg) { errorBox.style.display = ''; clear(errorBox); errorBox.appendChild(h('b', { text: 'Could not run the comparison' })); errorBox.appendChild(h('span', { text: msg })); }
+    };
+    function value(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+    go.addEventListener('click', function () {
+      runComparison(editor.value, { typeMatching: value('opt-type'), nullMatching: value('opt-null'), orderStrict: value('opt-order'), idProperties: value('opt-ids') }, ui);
+    });
+    editor.addEventListener('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); go.click(); } });
+
+    return h('div', { class: 'panel' },
+      h('div', { class: 'panel-head' },
+        h('div', null, h('h2', { text: 'Run a comparison' }), h('p', { class: 'sub', text: 'The JSON body of POST /compare/custom: both base URLs, the paths and, if needed, headers for each side.' })),
+        h('button', { class: 'btn small', type: 'button', text: 'Insert an example', onclick: function () { editor.value = JSON.stringify(EXAMPLE_REQUEST, null, 2); state.request = editor.value; validate(); editor.focus(); } })),
+      editor, status, errorBox,
+      h('div', { class: 'form-grid' }, type, nul, order, ids),
+      h('div', { class: 'row' }, go, cancel, h('span', { class: 'hint', text: 'Ctrl/⌘ + Enter to run. Header values are only sent to the services you name; they are not stored.' })));
+  }
+
+  function openPanel() {
+    var paste = h('textarea', { class: 'editor short', spellcheck: 'false', placeholder: 'Paste the JSON returned by POST /compare, /compare/custom, /compare/files or /compare/json…', 'aria-label': 'Report JSON' });
     var fileInput = h('input', { type: 'file', accept: '.json,application/json', class: 'sr-only', id: 'file-input' });
     fileInput.addEventListener('change', function () { if (fileInput.files[0]) loadFile(fileInput.files[0]); });
-    var runs = h('div', { class: 'row' });
+    var runs = h('div', { class: 'runs-slot' });
     fetchJson('reports/runs').then(function (list) {
-      if (!list || !list.length) return;
-      var select = h('select', { class: 'runs', 'aria-label': 'Saved runs' }, h('option', { value: '', text: 'Open a saved run…' }));
-      list.forEach(function (r) { select.appendChild(h('option', { value: r, text: r })); });
-      select.addEventListener('change', function () { if (select.value) openRun(select.value); });
-      runs.appendChild(select);
+      if (!list || !list.length) { runs.appendChild(h('span', { class: 'hint', text: 'No saved run yet. Live runs are saved on the server and listed here.' })); return; }
+      var sel = h('select', { class: 'select', 'aria-label': 'Saved runs' }, h('option', { value: '', text: 'Open a saved run…' }));
+      list.forEach(function (r) { sel.appendChild(h('option', { value: r, text: r })); });
+      sel.addEventListener('change', function () { if (sel.value) openRun(sel.value); });
+      runs.appendChild(sel);
     }).catch(function () { /* the viewer also works without the server API */ });
 
-    var drop = h('div', { class: 'drop' }, h('div', { class: 'big', text: '⇪' }),
-      h('p', { text: 'Drop a report .json file here, or' }),
+    var drop = h('div', { class: 'drop' }, h('div', { class: 'drop-icon', text: '⇪' }),
+      h('div', { class: 'drop-title', text: 'Drop a report .json file here' }),
       h('div', { class: 'row', style: 'justify-content:center' }, h('label', { class: 'btn primary', for: 'file-input', text: 'Choose a file…' }), fileInput,
-        window.SAMPLE ? h('button', { class: 'btn', text: 'Try the sample', onclick: loadSample }) : null));
+        window.SAMPLE ? h('button', { class: 'btn', type: 'button', text: 'Try the sample', onclick: loadSample }) : null));
     ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function () { drop.classList.add('over'); }); });
     ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function () { drop.classList.remove('over'); }); });
 
-    return h('div', { class: 'landing' },
-      h('div', { class: 'row' }, h('a', { class: 'brand', href: '#/' }, h('span', { class: 'brand-mark' }, svg('M3 3h4v10H3zM9 3h4v10H9z')), 'Comparison report'),
-        h('span', { style: 'flex:1' }),
-        h('button', { class: 'btn small ghost', onclick: function () { var n = isDark() ? 'light' : 'dark'; applyTheme(n); store('viewer-theme', n); render(); }, text: isDark() ? '☀ Light' : '☾ Dark' })),
-      h('div', { class: 'hero' }, h('h1', { text: 'See exactly what differs.' }),
-        h('p', { text: 'Preview the result of a comparison: one page per compared path, the differences listed with their exact location, and the source and target documents side by side with every difference highlighted.' })),
+    return h('div', { class: 'panel' },
+      h('div', { class: 'panel-head' }, h('div', null, h('h2', { text: 'Open a report' }), h('p', { class: 'sub', text: 'Load the result of an earlier comparison: a saved run, a file, or pasted JSON.' }))),
       drop,
-      h('div', { class: 'card card-pad' }, h('h3', { text: 'Paste a report' }), paste,
-        h('div', { class: 'row', style: 'margin-top:10px' }, h('button', { class: 'btn primary', text: 'Preview', onclick: function () { loadText(paste.value, 'pasted report'); } }), runs)),
-      h('div', { class: 'hint' }, 'Get a report from the API, then paste or drop it here:',
-        h('pre', { text: "curl -s -X POST localhost:8080/compare/custom -H 'content-type: application/json' \\\n  -d '{\"sourceBaseUrl\":\"https://…\",\"targetBaseUrl\":\"https://…\",\"paths\":[\"/orders/1\"]}' > report.json" }),
-        'Reports of live runs also appear under “Open a saved run”, with the full source and target documents.'));
+      h('div', { class: 'split' },
+        h('div', null, h('h3', { text: 'Saved runs' }), runs),
+        h('div', null, h('h3', { text: 'Paste a report' }), paste,
+          h('div', { class: 'row', style: 'margin-top:10px' }, h('button', { class: 'btn primary', type: 'button', text: 'Preview', onclick: function () { loadText(paste.value, 'pasted report'); } })))));
+  }
+
+  function landing() {
+    var tab = state.startTab;
+    var body = h('div', { class: 'tab-body' }, tab === 'run' ? runPanel() : openPanel());
+    function segment(id, label) {
+      return h('button', { class: 'seg-btn' + (tab === id ? ' on' : ''), type: 'button', role: 'tab', 'aria-selected': tab === id ? 'true' : 'false', text: label,
+        onclick: function () { state.startTab = id; render(); } });
+    }
+    return h('div', { class: 'landing' },
+      h('div', { class: 'landing-top' }, h('a', { class: 'brand', href: '#/' }, h('span', { class: 'brand-mark' }, svg('M3 3h4v10H3zM9 3h4v10H9z')), 'Comparison report'),
+        h('span', { style: 'flex:1' }),
+        state.stash ? h('button', { class: 'btn small', type: 'button', text: '← Back to the report', onclick: restoreStash }) : null,
+        h('button', { class: 'btn small ghost', type: 'button', onclick: function () { var n = isDark() ? 'light' : 'dark'; applyTheme(n); store('viewer-theme', n); render(); }, text: isDark() ? '☀ Light' : '☾ Dark' })),
+      h('div', { class: 'hero' }, h('h1', null, 'See exactly what ', h('span', { class: 'grad', text: 'differs' }), '.'),
+        h('p', { text: 'Run a comparison between two services, or open an existing report. Get one page per path, every difference with its exact location, and the source and target side by side with the differing parts highlighted.' })),
+      h('div', { class: 'seg', role: 'tablist' }, segment('run', '▶ Run a comparison'), segment('open', '📂 Open a report')),
+      body);
   }
 
   render();

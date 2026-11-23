@@ -9,6 +9,7 @@ The report says what differs, never which side is right.
 |---|--------|
 | 1 | **Report viewer (UI)** at `/`: plain HTML, CSS and JavaScript served by the application itself (no build step, no external library). It takes the JSON of any analysis and shows one page per path, the differences with their exact location, and source and target side by side with every difference highlighted |
 | 2 | Differences gain `targetPath`: where the value sits in the **target** document when that differs from `jsonPath` (an array element paired with an element at another position). The viewer needs it to highlight the right line on the target side |
+| 2b | **Run a comparison from the UI**: a form whose input is the JSON body of the existing `POST /compare/custom` (base URLs, paths, headers) plus the query options (`typeMatching`, `nullMatching`, `orderStrict`, `idProperties`). The result opens directly in the viewer. Reports can still be opened (saved run, file, pasted JSON) from a second tab |
 | 3 | `GET /reports/runs` and `GET /reports/file?path=...` give read access to what live runs saved, so the viewer can open a saved run and load the full documents |
 | 4 | Version `0.8.0` (Maven, OpenAPI info) |
 
@@ -200,6 +201,18 @@ Static files in `src/main/resources/static` (`index.html`, `css/report.css`, `js
 no build, nothing loaded from the network. Opening it needs no server call: a report can be pasted, dropped or
 chosen as a file. The documents of a path are loaded from `GET /reports/file` when the report names saved files.
 
+**Start page.** Two tabs:
+- *Run a comparison*: an editor for the JSON body of `POST /compare/custom`
+  (`{sourceBaseUrl, targetBaseUrl, paths, sourceHeaders?, targetHeaders?}`) and four options matching the query
+  parameters (type matching, null matching, array order, id properties; "Default" sends nothing). The request is
+  checked while typing (valid JSON, absolute `http`/`https` URLs, non-empty `paths`) and again before sending; nothing is
+  sent if it is invalid. `Run` calls `POST compare/custom` on the same server, shows progress, can be cancelled, and opens
+  the returned report; a rejected request (`400`) shows the server message in place and keeps the form. Header values
+  are only typed in the editor: they are sent to the services named in the request, never stored by the page and
+  never shown in a report. "New comparison" in the top bar returns to the form with the last request, and
+  "Back to the report" returns to the current report.
+- *Open a report*: described under Input.
+
 **Input.** The JSON returned by any endpoint (`/compare`, `/compare/custom`, `/compare/files`, `/compare/json`),
 a saved `report.json` (run or path), or a saved run chosen in the list. A built-in sample can be tried.
 
@@ -261,9 +274,11 @@ when a layer imports a layer it must not depend on. Tests sit in the same packag
 - **Viewer API**: `/reports/runs` lists runs; `/reports/file` returns a saved file; traversal attempts, other
   extensions and unknown files are refused (`400` / `404`); the static pages are served.
 - **targetPath**: moved array elements give their target position, omitted when equal to `jsonPath`.
-- **Viewer** (checked in a real browser, not part of the Maven build): overview, path page, side by side highlighting
-  on both sides for a moved element, saved run opened from the list, attach fallback, no script injection from a
-  hostile report, invalid JSON refused.
+- **Viewer** (`ui-tests/viewer.e2e.js`, Playwright, run by hand against a running application, not part of the Maven
+  build): request validation, running a comparison from the form with options and headers (received by the right
+  service only), overview, path page, highlighting on both sides for a moved element, next difference, error path,
+  a request rejected by the server, back to the report, saved run, report file, no script injection from a hostile
+  report, invalid JSON refused, dark theme, no horizontal scroll on a phone, no console error.
 - **Layering**: `LayeringTest` enforces the dependency directions of section 9.
 - **Symmetry**: randomized source/target swap gives the mirrored result for all option combinations.
 - **Endpoints** (fake source/target services): full detail, `ERROR` cases, `STATUS_MISMATCH`, saved files,
