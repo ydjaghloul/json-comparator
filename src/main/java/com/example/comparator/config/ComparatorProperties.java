@@ -1,5 +1,7 @@
-package com.example.comparator;
+package com.example.comparator.config;
 
+import com.example.comparator.model.NullMatching;
+import com.example.comparator.model.TypeMatching;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;

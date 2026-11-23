@@ -192,10 +192,21 @@ from the records; annotations only in the controller and the config class. Switc
 `springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`. No authentication: do not expose
 publicly (nor `/compare/custom`, which calls any URL it is given).
 
-## 8. Structure
-Flat package: properties, HTTP client config + factory, OpenAPI config, `JsonComparator` (+ `JsonPath`),
-`CompareService`, `FileStorageService`, `CompareController`, report records (`CompareReport`, `PathResult`,
-`Difference`, enums, `CompareOptions`).
+## 8. Structure (layers)
+Package `com.example.comparator`, one sub package per layer. A layer only uses the layers on its right:
+`controller → service → client / comparator → config → model`.
+
+| Package | Role | Classes |
+|---------|------|---------|
+| `controller` | HTTP API, request validation, Swagger annotations; no business logic | `CompareController`, `dto/CustomCompareRequest`, `dto/HeadersRequest` |
+| `service` | Use cases: live / file / inline comparison, saving responses and reports | `CompareService`, `FileStorageService` |
+| `client` | Calls to the compared services: `RestClient` construction, credentials and headers | `RestClientFactory`, `HttpClientConfig`, `RequestHeaders` (header validation) |
+| `comparator` | Pure JSON comparison (no Spring, no I/O apart from its bean definition) | `JsonComparator`, `JsonPath`, `ComparatorConfig` |
+| `config` | Configuration properties and shared beans | `ComparatorProperties`, `AppConfig`, `OpenApiConfig` |
+| `model` | Immutable records and enums shared by all layers | `CompareOptions`, `CompareReport`, `PathResult`, `Difference`, `DifferenceType`, `ResultStatus`, `TypeMatching`, `NullMatching` |
+
+`RestComparatorApplication` (root package) only starts the application. A test (`LayeringTest`) fails the build
+when a layer imports a layer it must not depend on. Tests sit in the same package as the class they test.
 
 ## 9. Tests (must exist)
 - **Comparator**: property order; numbers; ignore paths; each row of 4.2 (notably `"jjj"` vs `null`, `null` vs
@@ -205,6 +216,7 @@ Flat package: properties, HTTP client config + factory, OpenAPI config, `JsonCom
   different ids never paired), nested arrays, `a,b,c` vs `a,b,e` in both modes.
 - **Identification**: `location` with id, with field description, for scalars, omitted without arrays; message
   wording of 5 for every difference type.
+- **Layering**: `LayeringTest` enforces the dependency directions of section 8.
 - **Symmetry**: randomized source/target swap gives the mirrored result for all option combinations.
 - **Endpoints** (fake source/target services): full detail, `ERROR` cases, `STATUS_MISMATCH`, saved files,
   credentials only to trusted sources, request headers per side (override, never saved or returned, `400` on

@@ -26,6 +26,9 @@ mvn spring-boot:run
 # or: java -jar target/rest-service-comparator-0.7.0.jar
 ```
 
+## Code layout
+`controller` (HTTP API) → `service` (use cases, saved files) → `client` (calls to the services) / `comparator` (JSON comparison) → `config` → `model` (records and enums). Details in [SPEC_v0.7.md](SPEC_v0.7.md), section 8.
+
 ## Configuration (`src/main/resources/application.yml`)
 - `source_service.base-url`, `target_service.base-url` (required)
 - `*.connect-timeout` (default `5s`), `*.read-timeout` (default `30s`)

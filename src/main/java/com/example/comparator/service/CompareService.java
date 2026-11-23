@@ -1,5 +1,12 @@
-package com.example.comparator;
+package com.example.comparator.service;
 
+import com.example.comparator.client.RestClientFactory;
+import com.example.comparator.comparator.JsonComparator;
+import com.example.comparator.config.ComparatorProperties;
+import com.example.comparator.model.CompareOptions;
+import com.example.comparator.model.CompareReport;
+import com.example.comparator.model.Difference;
+import com.example.comparator.model.PathResult;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -18,7 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StreamUtils;
 import org.springframework.web.client.RestClient;
 
-import com.example.comparator.FileStorageService.RunFolder;
+import com.example.comparator.service.FileStorageService.RunFolder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;

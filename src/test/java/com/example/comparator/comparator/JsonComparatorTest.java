@@ -1,5 +1,10 @@
-package com.example.comparator;
+package com.example.comparator.comparator;
 
+import com.example.comparator.model.CompareOptions;
+import com.example.comparator.model.Difference;
+import com.example.comparator.model.DifferenceType;
+import com.example.comparator.model.NullMatching;
+import com.example.comparator.model.TypeMatching;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -9,9 +14,9 @@ import java.util.List;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import com.example.comparator.ComparatorProperties.ArrayOrder;
-import com.example.comparator.ComparatorProperties.Comparison;
-import com.example.comparator.ComparatorProperties.UnorderedArray;
+import com.example.comparator.config.ComparatorProperties.ArrayOrder;
+import com.example.comparator.config.ComparatorProperties.Comparison;
+import com.example.comparator.config.ComparatorProperties.UnorderedArray;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 

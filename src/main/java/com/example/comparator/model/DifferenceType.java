@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.model;
 
 public enum DifferenceType {
     MISSING_IN_SOURCE,

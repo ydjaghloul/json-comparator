@@ -1,5 +1,13 @@
-package com.example.comparator;
+package com.example.comparator.controller;
 
+import com.example.comparator.client.RequestHeaders;
+import com.example.comparator.controller.dto.CustomCompareRequest;
+import com.example.comparator.controller.dto.HeadersRequest;
+import com.example.comparator.model.CompareOptions;
+import com.example.comparator.model.CompareReport;
+import com.example.comparator.model.NullMatching;
+import com.example.comparator.model.TypeMatching;
+import com.example.comparator.service.CompareService;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
@@ -204,17 +212,5 @@ public class CompareController {
         catch (IllegalArgumentException e) {
             throw badRequest(e.getMessage());
         }
-    }
-
-    /**
-     * Request body of {@code POST /compare/custom}. {@code sourceHeaders} / {@code targetHeaders} are optional
-     * headers sent with every call to the source / target of this request.
-     */
-    public record CustomCompareRequest(String sourceBaseUrl, String targetBaseUrl, List<String> paths,
-            Map<String, String> sourceHeaders, Map<String, String> targetHeaders) {
-    }
-
-    /** Optional body of {@code POST /compare}: headers for this run only. */
-    public record HeadersRequest(Map<String, String> sourceHeaders, Map<String, String> targetHeaders) {
     }
 }

@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.model;
 
 /**
  * How strictly JSON types are compared.

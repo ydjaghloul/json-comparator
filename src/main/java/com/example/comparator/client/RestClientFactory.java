@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.client;
 
 import java.net.URI;
 import java.util.LinkedHashMap;
@@ -14,7 +14,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.DefaultUriBuilderFactory;
 
-import com.example.comparator.ComparatorProperties.ServiceProperties;
+import com.example.comparator.config.ComparatorProperties;
+import com.example.comparator.config.ComparatorProperties.ServiceProperties;
 
 /**
  * Builds {@link RestClient}s from the auto-configured {@link RestClient.Builder} (a new prototype instance each

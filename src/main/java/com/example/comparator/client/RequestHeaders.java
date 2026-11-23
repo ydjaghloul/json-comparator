@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.client;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -10,9 +10,9 @@ import java.util.regex.Pattern;
  * Validation of HTTP headers given in a request ({@code sourceHeaders} / {@code targetHeaders}). Values are
  * secrets (tokens, cookies): they are never logged, saved or echoed back.
  */
-final class RequestHeaders {
+public final class RequestHeaders {
 
-    static final int MAX_HEADERS = 20;
+    public static final int MAX_HEADERS = 20;
 
     private static final Pattern TOKEN = Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
     /** Set by the HTTP client itself or changing how the message is framed. */
@@ -26,7 +26,7 @@ final class RequestHeaders {
      * @return a copy of the headers, never {@code null}
      * @throws IllegalArgumentException with a message that never contains a header value
      */
-    static Map<String, String> validate(String field, Map<String, String> headers) {
+    public static Map<String, String> validate(String field, Map<String, String> headers) {
         Map<String, String> result = new LinkedHashMap<>();
         if (headers == null) {
             return result;

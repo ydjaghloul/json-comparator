@@ -1,4 +1,4 @@
-package com.example.comparator;
+package com.example.comparator.model;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,7 +26,7 @@ public record PathResult(
         String reportFile) {
 
     /** IDENTICAL when the list is empty, otherwise DIFFERENT with the full list, its count and counts by type. */
-    static PathResult compared(String path, List<Difference> differences, String sourceFile, String targetFile) {
+    public static PathResult compared(String path, List<Difference> differences, String sourceFile, String targetFile) {
         if (differences.isEmpty()) {
             return new PathResult(path, ResultStatus.IDENTICAL, "identical", null, null, null, sourceFile, targetFile,
                     null);
@@ -41,12 +41,12 @@ public record PathResult(
                 sourceFile, targetFile, null);
     }
 
-    static PathResult error(String path, String message, String sourceFile, String targetFile) {
+    public static PathResult error(String path, String message, String sourceFile, String targetFile) {
         return new PathResult(path, ResultStatus.ERROR, message, null, null, null, sourceFile, targetFile, null);
     }
 
     /** Same result, with the location of its saved report (relative to {@code output.directory}). */
-    PathResult withReportFile(String reportFile) {
+    public PathResult withReportFile(String reportFile) {
         return new PathResult(path, status, summary, differenceCount, byType, differences, sourceFile, targetFile,
                 reportFile);
     }

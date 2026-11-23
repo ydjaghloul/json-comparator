@@ -1,5 +1,9 @@
-package com.example.comparator;
+package com.example.comparator.comparator;
 
+import com.example.comparator.model.CompareOptions;
+import com.example.comparator.model.Difference;
+import com.example.comparator.model.NullMatching;
+import com.example.comparator.model.TypeMatching;
 import java.math.BigDecimal;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -13,9 +17,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-import com.example.comparator.ComparatorProperties.ArrayOrder;
-import com.example.comparator.ComparatorProperties.Comparison;
-import com.example.comparator.ComparatorProperties.UnorderedArray;
+import com.example.comparator.config.ComparatorProperties.ArrayOrder;
+import com.example.comparator.config.ComparatorProperties.Comparison;
+import com.example.comparator.config.ComparatorProperties.UnorderedArray;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeType;
 
