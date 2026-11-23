@@ -3,6 +3,7 @@ package com.example.comparator;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -51,6 +52,10 @@ public class CompareController {
             + "pair array elements when order is not strict (e.g. id,code). The first one present with a unique "
             + "value in every element of both arrays is used. Default: comparison.id-properties";
 
+    static final String HEADERS_DOC = "Optional. sourceHeaders / targetHeaders: extra HTTP headers sent with every "
+            + "call to the source / target of this run, on top of the configured ones (same name: this one wins). "
+            + "Values are secrets: never logged, saved or returned.";
+
     private final CompareService compareService;
 
     public CompareController(CompareService compareService) {
@@ -61,11 +66,18 @@ public class CompareController {
     @Operation(summary = "Compare the configured services for every configured path",
             description = "Responses are saved under output.directory.")
     @PostMapping("/compare")
-    public CompareReport compare(@Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
+    public CompareReport compare(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = false, description = HEADERS_DOC,
+                    content = @Content(examples = @ExampleObject(value = """
+                            {"sourceHeaders": {"Authorization": "Bearer <token>"},
+                             "targetHeaders": {"X-Api-Key": "<key>"}}"""))) @RequestBody(required = false) HeadersRequest headers,
+            @Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
             @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching,
             @Parameter(description = ORDER_STRICT_DOC) @RequestParam(name = ORDER_STRICT, required = false) Boolean orderStrict,
             @Parameter(description = ID_PROPERTIES_DOC) @RequestParam(name = ID_PROPERTIES, required = false) List<String> idProperties) {
-        return compareService.compareAll(options(typeMatching, nullMatching, orderStrict, idProperties));
+        HeadersRequest given = headers == null ? new HeadersRequest(null, null) : headers;
+        return compareService.compareAll(options(typeMatching, nullMatching, orderStrict, idProperties),
+                validHeaders("sourceHeaders", given.sourceHeaders()), validHeaders("targetHeaders", given.targetHeaders()));
     }
 
     /** Same as {@code /compare}, with both base URLs and the paths taken from the request body. */
@@ -78,7 +90,9 @@ public class CompareController {
                     value = """
                             {"sourceBaseUrl": "https://source.example.com",
                              "targetBaseUrl": "https://target.example.com",
-                             "paths": ["/customers/42/orders", "/products/1001"]}"""))) @RequestBody CustomCompareRequest request,
+                             "paths": ["/customers/42/orders", "/products/1001"],
+                             "sourceHeaders": {"Authorization": "Bearer <token>"},
+                             "targetHeaders": {"X-Api-Key": "<key>"}}"""))) @RequestBody CustomCompareRequest request,
             @Parameter(description = TYPE_MATCHING_DOC) @RequestParam(name = TYPE_MATCHING, required = false) TypeMatching typeMatching,
             @Parameter(description = NULL_MATCHING_DOC) @RequestParam(name = NULL_MATCHING, required = false) NullMatching nullMatching,
             @Parameter(description = ORDER_STRICT_DOC) @RequestParam(name = ORDER_STRICT, required = false) Boolean orderStrict,
@@ -92,7 +106,9 @@ public class CompareController {
             throw badRequest("paths must not contain blank entries");
         }
         return compareService.compareCustom(request.sourceBaseUrl().trim(), request.targetBaseUrl().trim(),
-                List.copyOf(request.paths()), options(typeMatching, nullMatching, orderStrict, idProperties));
+                List.copyOf(request.paths()), options(typeMatching, nullMatching, orderStrict, idProperties),
+                validHeaders("sourceHeaders", request.sourceHeaders()),
+                validHeaders("targetHeaders", request.targetHeaders()));
     }
 
     /** Compares two files already saved under {@code output.directory}. */
@@ -181,7 +197,24 @@ public class CompareController {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, reason);
     }
 
-    /** Request body of {@code POST /compare/custom}. */
-    public record CustomCompareRequest(String sourceBaseUrl, String targetBaseUrl, List<String> paths) {
+    private static Map<String, String> validHeaders(String field, Map<String, String> headers) {
+        try {
+            return RequestHeaders.validate(field, headers);
+        }
+        catch (IllegalArgumentException e) {
+            throw badRequest(e.getMessage());
+        }
+    }
+
+    /**
+     * Request body of {@code POST /compare/custom}. {@code sourceHeaders} / {@code targetHeaders} are optional
+     * headers sent with every call to the source / target of this request.
+     */
+    public record CustomCompareRequest(String sourceBaseUrl, String targetBaseUrl, List<String> paths,
+            Map<String, String> sourceHeaders, Map<String, String> targetHeaders) {
+    }
+
+    /** Optional body of {@code POST /compare}: headers for this run only. */
+    public record HeadersRequest(Map<String, String> sourceHeaders, Map<String, String> targetHeaders) {
     }
 }

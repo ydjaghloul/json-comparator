@@ -544,4 +544,55 @@ class JsonComparatorTest {
                     .containsExactly("$[id=1]", "$[id=3]");
         }
     }
+
+    @Nested
+    class PropertyLevelDetail {
+
+        private final JsonComparator comparator = new JsonComparator(new Comparison(null, null, null, null, null));
+
+        private List<Difference> run(String source, String target) {
+            return comparator.compare(json(source), json(target));
+        }
+
+        @Test
+        void similarObjectsWithoutIdAreComparedPropertyByProperty() {
+            List<Difference> differences = run(
+                    "{'rows':[{'name':'bob','city':'Paris','age':3},{'name':'eve','city':'Rome','age':9}]}",
+                    "{'rows':[{'name':'eve','city':'Rome','age':9},{'name':'bob','city':'Paris','age':4}]}");
+
+            assertThat(differences).singleElement().satisfies(d -> {
+                assertThat(d.type()).isEqualTo(DifferenceType.VALUE_MISMATCH);
+                assertThat(d.jsonPath()).isEqualTo("$.rows[0].age");
+                assertThat(d.location()).isEqualTo("$.rows[0: name=bob, city=Paris, age=3].age");
+                assertThat(d.source().intValue()).isEqualTo(3);
+                assertThat(d.target().intValue()).isEqualTo(4);
+            });
+        }
+
+        @Test
+        void missingAndExtraPropertiesAreNamedToo() {
+            assertThat(run("[{'a':1,'b':2,'c':3}]", "[{'a':1,'b':2,'d':4}]")).extracting(Difference::jsonPath,
+                    Difference::type).containsExactlyInAnyOrder(tuple("$[0].c", DifferenceType.MISSING_IN_TARGET),
+                            tuple("$[0].d", DifferenceType.MISSING_IN_SOURCE));
+        }
+
+        @Test
+        void nestedPropertiesAreNamedWithTheirFullPath() {
+            assertThat(run("[{'name':'bob','address':{'city':'Paris','zip':'75'}}]",
+                    "[{'name':'bob','address':{'city':'Lyon','zip':'75'}}]")).singleElement()
+                    .extracting(Difference::jsonPath).isEqualTo("$[0].address.city");
+        }
+
+        @Test
+        void objectsWithLittleInCommonStayMissingAndExtra() {
+            assertThat(run("[{'a':1,'b':2,'c':3}]", "[{'a':1,'x':7,'y':8}]")).extracting(Difference::type)
+                    .containsExactly(DifferenceType.MISSING_IN_TARGET, DifferenceType.MISSING_IN_SOURCE);
+        }
+
+        @Test
+        void objectsWithDifferentIdsAreNeverPaired() {
+            assertThat(run("[{'id':1,'n':'a','m':'b'}]", "[{'id':2,'n':'a','m':'b'}]")).extracting(Difference::type)
+                    .containsExactly(DifferenceType.MISSING_IN_TARGET, DifferenceType.MISSING_IN_SOURCE);
+        }
+    }
 }

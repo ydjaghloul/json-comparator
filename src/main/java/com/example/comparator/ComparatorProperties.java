@@ -2,6 +2,7 @@ package com.example.comparator;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -30,7 +31,8 @@ public record ComparatorProperties(
     }
 
     /**
-     * Connection settings for one service. Credentials and {@code trustedBaseUrls} are only used for the source
+     * Connection settings for one service. {@code headers} are extra headers sent on every call to the configured
+     * base URL (values are secrets: only the names are ever printed). Credentials and {@code trustedBaseUrls} are only used for the source
      * service: {@code /compare/custom} sends credentials only to {@code baseUrl} or a trusted base URL.
      */
     public record ServiceProperties(
@@ -39,9 +41,11 @@ public record ComparatorProperties(
             String clientSecret,
             Duration connectTimeout,
             Duration readTimeout,
-            List<String> trustedBaseUrls) {
+            List<String> trustedBaseUrls,
+            Map<String, String> headers) {
 
         public ServiceProperties {
+            headers = headers == null ? Map.of() : Map.copyOf(headers);
             connectTimeout = connectTimeout == null ? Duration.ofSeconds(5) : connectTimeout;
             readTimeout = readTimeout == null ? Duration.ofSeconds(30) : readTimeout;
             trustedBaseUrls = trustedBaseUrls == null ? List.of() : List.copyOf(trustedBaseUrls);
@@ -55,7 +59,8 @@ public record ComparatorProperties(
                     + ", clientSecret=" + (isBlank(clientSecret) ? "<unset>" : "****")
                     + ", connectTimeout=" + connectTimeout
                     + ", readTimeout=" + readTimeout
-                    + ", trustedBaseUrls=" + trustedBaseUrls + "]";
+                    + ", trustedBaseUrls=" + trustedBaseUrls
+                    + ", headers=" + headers.keySet() + "]";
         }
     }
 

@@ -32,6 +32,7 @@ public class RestClientFactory {
     private final ObjectProvider<ClientHttpRequestFactoryBuilder<?>> factoryBuilder;
     private final ObjectProvider<ClientHttpRequestFactorySettings> factorySettings;
     private final ServiceProperties source;
+    private final ServiceProperties target;
     private final Map<String, String> credentials;
 
     public RestClientFactory(ObjectProvider<RestClient.Builder> builders,
@@ -41,22 +42,59 @@ public class RestClientFactory {
         this.factoryBuilder = factoryBuilder;
         this.factorySettings = factorySettings;
         this.source = properties.sourceService();
+        this.target = properties.targetService();
         this.credentials = credentialHeaders(source);
     }
 
     /** Client for a source base URL, with credentials only when the URL is trusted. */
     public RestClient sourceClient(String baseUrl) {
+        return sourceClient(baseUrl, Map.of());
+    }
+
+    /**
+     * Client for a source base URL. Credentials and the configured {@code source_service.headers} are only sent to
+     * a trusted URL; {@code requestHeaders} (given by the caller for this call) are always sent and win over the
+     * configured ones with the same name.
+     */
+    public RestClient sourceClient(String baseUrl, Map<String, String> requestHeaders) {
         boolean trusted = isTrustedSourceUrl(baseUrl);
         if (!trusted) {
             log.warn("Source base URL {} is not source_service.base-url nor in source_service.trusted-base-urls: "
                     + "calling it without credentials", baseUrl);
         }
-        return create(baseUrl, source, trusted ? credentials : Map.of());
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (trusted) {
+            headers.putAll(source.headers());
+            headers.putAll(credentials);
+        }
+        return create(baseUrl, source, merge(headers, requestHeaders));
     }
 
     /** Client for a target base URL: never any credentials. */
     public RestClient targetClient(String baseUrl, ServiceProperties timeouts) {
-        return create(baseUrl, timeouts, Map.of());
+        return targetClient(baseUrl, timeouts, Map.of());
+    }
+
+    /**
+     * Client for a target base URL: never credentials. The configured {@code target_service.headers} are only sent
+     * to {@code target_service.base-url}; {@code requestHeaders} are always sent.
+     */
+    public RestClient targetClient(String baseUrl, ServiceProperties timeouts, Map<String, String> requestHeaders) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (normalize(baseUrl) != null && normalize(baseUrl).equals(normalize(target.baseUrl()))) {
+            headers.putAll(timeouts.headers());
+        }
+        return create(baseUrl, timeouts, merge(headers, requestHeaders));
+    }
+
+    /** Request headers replace configured ones with the same name, whatever the letter case. */
+    private static Map<String, String> merge(Map<String, String> base, Map<String, String> overrides) {
+        Map<String, String> merged = new LinkedHashMap<>(base);
+        overrides.forEach((name, value) -> {
+            merged.keySet().removeIf(existing -> existing.equalsIgnoreCase(name));
+            merged.put(name, value);
+        });
+        return merged;
     }
 
     boolean isTrustedSourceUrl(String baseUrl) {

@@ -3,6 +3,7 @@ package com.example.comparator;
 import java.math.BigDecimal;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,6 +36,9 @@ public class JsonComparator {
 
     /** A JSON number, exactly: no spaces, no leading '+', no leading zeros. */
     private static final Pattern JSON_NUMBER = Pattern.compile("-?(0|[1-9]\\d*)(\\.\\d+)?([eE][+-]?\\d+)?");
+
+    /** Share of leaf values two unpaired objects must have in common to be compared property by property. */
+    static final double MIN_SIMILARITY = 0.5;
 
     private final CompareOptions defaults;
     private final List<JsonPath> ignorePatterns;
@@ -222,6 +226,10 @@ public class JsonComparator {
             }
         }
 
+        if (key == null) {
+            pairBySimilarity(at, source, target, sourcePaired, targetPaired, mode, out);
+        }
+
         for (int i = 0; i < sourceSize; i++) {
             if (!sourcePaired[i]) {
                 compare(at.element(i, source.get(i), key, mode), source.get(i), null, mode, out);
@@ -231,6 +239,84 @@ public class JsonComparator {
             if (!targetPaired[j]) {
                 compare(at.element(j, target.get(j), key, mode), null, target.get(j), mode, out);
             }
+        }
+    }
+
+    /**
+     * Last pairing step, only when the array has no usable id: objects that are still unpaired are matched with the
+     * most similar object of the other side (at least {@value #MIN_SIMILARITY} of their leaf values in common), so
+     * the report names the properties that differ instead of one missing and one extra object. Best pairs first;
+     * ties are broken on the content of the two objects, never on their side, so swapping source and target
+     * pairs the same objects.
+     */
+    private void pairBySimilarity(Cursor at, JsonNode source, JsonNode target, boolean[] sourcePaired,
+            boolean[] targetPaired, Mode mode, List<Difference> out) {
+        record Candidate(double score, String tie, int i, int j) {
+        }
+        Map<Integer, Set<String>> sourceLeaves = new HashMap<>();
+        Map<Integer, Set<String>> targetLeaves = new HashMap<>();
+        for (int i = 0; i < source.size(); i++) {
+            if (!sourcePaired[i] && source.get(i).isObject()) {
+                sourceLeaves.put(i, leaves(source.get(i)));
+            }
+        }
+        for (int j = 0; j < target.size(); j++) {
+            if (!targetPaired[j] && target.get(j).isObject()) {
+                targetLeaves.put(j, leaves(target.get(j)));
+            }
+        }
+        List<Candidate> candidates = new ArrayList<>();
+        sourceLeaves.forEach((i, a) -> targetLeaves.forEach((j, b) -> {
+            double score = similarity(a, b);
+            if (score >= MIN_SIMILARITY) {
+                String x = source.get(i).toString();
+                String y = target.get(j).toString();
+                String tie = x.compareTo(y) <= 0 ? x + "\u0000" + y : y + "\u0000" + x;
+                candidates.add(new Candidate(score, tie, i, j));
+            }
+        }));
+        candidates.sort(Comparator.comparingDouble(Candidate::score).reversed().thenComparing(Candidate::tie)
+                .thenComparingInt(Candidate::i).thenComparingInt(Candidate::j));
+        for (Candidate candidate : candidates) {
+            if (sourcePaired[candidate.i()] || targetPaired[candidate.j()]) {
+                continue;
+            }
+            sourcePaired[candidate.i()] = true;
+            targetPaired[candidate.j()] = true;
+            compare(at.element(candidate.i(), source.get(candidate.i()), null, mode), source.get(candidate.i()),
+                    target.get(candidate.j()), mode, out);
+        }
+    }
+
+    private static double similarity(Set<String> a, Set<String> b) {
+        int common = 0;
+        for (String leaf : a) {
+            if (b.contains(leaf)) {
+                common++;
+            }
+        }
+        int union = a.size() + b.size() - common;
+        return union == 0 || common == 0 ? 0 : (double) common / union;
+    }
+
+    /** {@code path=value} of every scalar below the node; array positions are ignored (order does not matter). */
+    private static Set<String> leaves(JsonNode node) {
+        Set<String> out = new HashSet<>();
+        collectLeaves("", node, out);
+        return out;
+    }
+
+    private static void collectLeaves(String path, JsonNode node, Set<String> out) {
+        if (node.isObject()) {
+            node.fields().forEachRemaining(f -> collectLeaves(path + "." + f.getKey(), f.getValue(), out));
+        }
+        else if (node.isArray()) {
+            node.forEach(element -> collectLeaves(path + "[]", element, out));
+        }
+        else if (!node.isNull()) {
+            String value = node.isNumber() ? node.decimalValue().stripTrailingZeros().toPlainString()
+                    : node.toString();
+            out.add(path + "=" + value);
         }
     }
 

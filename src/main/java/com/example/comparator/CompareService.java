@@ -7,6 +7,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,7 +66,19 @@ public class CompareService {
 
     /** Calls the configured services for every configured path. A failing path never stops the run. */
     public CompareReport compareAll(CompareOptions options) {
-        return compareLive(sourceClient, targetClient, properties.paths(), resolve(options));
+        return compareAll(options, Map.of(), Map.of());
+    }
+
+    /** Same, with extra headers for this run only (sent on top of the configured ones). */
+    public CompareReport compareAll(CompareOptions options, Map<String, String> sourceHeaders,
+            Map<String, String> targetHeaders) {
+        if (sourceHeaders.isEmpty() && targetHeaders.isEmpty()) {
+            return compareLive(sourceClient, targetClient, properties.paths(), resolve(options));
+        }
+        return compareLive(clientFactory.sourceClient(properties.sourceService().baseUrl(), sourceHeaders),
+                clientFactory.targetClient(properties.targetService().baseUrl(), properties.targetService(),
+                        targetHeaders),
+                properties.paths(), resolve(options));
     }
 
     /**
@@ -74,8 +87,14 @@ public class CompareService {
      */
     public CompareReport compareCustom(String sourceBaseUrl, String targetBaseUrl, List<String> paths,
             CompareOptions options) {
-        RestClient source = clientFactory.sourceClient(sourceBaseUrl);
-        RestClient target = clientFactory.targetClient(targetBaseUrl, properties.targetService());
+        return compareCustom(sourceBaseUrl, targetBaseUrl, paths, options, Map.of(), Map.of());
+    }
+
+    /** Same, with headers given for this call: {@code sourceHeaders} to the source, {@code targetHeaders} to the target. */
+    public CompareReport compareCustom(String sourceBaseUrl, String targetBaseUrl, List<String> paths,
+            CompareOptions options, Map<String, String> sourceHeaders, Map<String, String> targetHeaders) {
+        RestClient source = clientFactory.sourceClient(sourceBaseUrl, sourceHeaders);
+        RestClient target = clientFactory.targetClient(targetBaseUrl, properties.targetService(), targetHeaders);
         return compareLive(source, target, paths, resolve(options));
     }
 

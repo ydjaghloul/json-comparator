@@ -36,8 +36,8 @@ class FileStorageServiceTest {
     void setUp() throws Exception {
         outputDir = Files.createDirectories(tempDir.resolve("output"));
         ComparatorProperties properties = new ComparatorProperties(
-                new ServiceProperties("http://source", "id", "secret", null, null, null),
-                new ServiceProperties("http://target", null, null, null, null, null),
+                new ServiceProperties("http://source", "id", "secret", null, null, null, null),
+                new ServiceProperties("http://target", null, null, null, null, null, null),
                 List.of(), new Output(outputDir.toString()), null);
         storage = new FileStorageService(properties, MAPPER, CLOCK);
     }
@@ -101,8 +101,8 @@ class FileStorageServiceTest {
     void saveFailureIsNotFatal() throws Exception {
         Path notADirectory = Files.writeString(tempDir.resolve("file"), "x");
         ComparatorProperties properties = new ComparatorProperties(
-                new ServiceProperties("http://source", null, null, null, null, null),
-                new ServiceProperties("http://target", null, null, null, null, null),
+                new ServiceProperties("http://source", null, null, null, null, null, null),
+                new ServiceProperties("http://target", null, null, null, null, null, null),
                 List.of(), new Output(notADirectory.resolve("sub").toString()), null);
         FileStorageService broken = new FileStorageService(properties, MAPPER, CLOCK);
 

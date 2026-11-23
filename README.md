@@ -1,6 +1,6 @@
 # REST Service Comparator
 
-Full specification: [SPEC_v0.6.md](SPEC_v0.6.md).
+Full specification: [SPEC_v0.7.md](SPEC_v0.7.md).
 
 Spring Boot 3.5 / Java 17 app that calls two versions of a REST service with the same relative paths and reports semantic JSON differences.
 
@@ -23,7 +23,7 @@ Credentials are never logged and never written to saved files. If a variable is 
 mvn clean verify
 export CLIENT_ID=... CLIENT_SECRET=...
 mvn spring-boot:run
-# or: java -jar target/rest-service-comparator-0.6.0.jar
+# or: java -jar target/rest-service-comparator-0.7.0.jar
 ```
 
 ## Configuration (`src/main/resources/application.yml`)
@@ -42,8 +42,19 @@ mvn spring-boot:run
 ## Array comparison
 By default the order of array elements is ignored. Objects are paired by an id property (see `comparison.id-properties`, or the `idProperties` query parameter, e.g. `idProperties=ref,code`), so a changed field is reported as a field difference at the source index (`$.items[1].qty`) instead of as a missing + extra element. Use `orderStrict=true` to compare by position. Both parameters are accepted by every endpoint, and the report summary states the `orderStrict` actually used.
 
+## Headers
+Besides the configured credentials, extra HTTP headers can be given **per request**, without restarting the app:
+```bash
+curl -X POST localhost:8080/compare/custom -H 'content-type: application/json' -d '{
+  "sourceBaseUrl": "https://source.example.com", "targetBaseUrl": "https://target.example.com",
+  "paths": ["/customers/42/orders"],
+  "sourceHeaders": {"Authorization": "Bearer <token>"},
+  "targetHeaders": {"X-Api-Key": "<key>"} }'
+```
+`POST /compare` accepts the same two fields in an optional body. Fixed headers can be set with `source_service.headers` / `target_service.headers`. Request headers win over configured ones with the same name. Header values are never logged, saved or returned.
+
 ## Reading a difference
-Each difference has the exact `jsonPath` and, when an array is on the way, a `location` that names the elements by id (`$.orders[id=7].lines[code=X].qty`) or, without id, by index and main fields (`$.rows[3: name=bob, age=3]`). `null` against any other value is a `VALUE_MISMATCH` (never a type mismatch). With `["a","b","c"]` vs `["a","b","e"]`, order-insensitive comparison reports `c` as having no match in target and `e` as having no match in source.
+Each difference has the exact `jsonPath` and, when an array is on the way, a `location` that names the elements by id (`$.orders[id=7].lines[code=X].qty`) or, without id, by index and main fields (`$.rows[3: name=bob, age=3]`). `null` against any other value is a `VALUE_MISMATCH` (never a type mismatch). Objects in arrays without an id are matched with their most similar counterpart (at least 50% of their values in common), so the report names the property that differs, e.g. `$.rows[0: name=bob, city=Paris, age=3].age`. With `["a","b","c"]` vs `["a","b","e"]`, order-insensitive comparison reports `c` as having no match in target and `e` as having no match in source.
 
 ## API
 Swagger UI: http://localhost:8080/swagger-ui.html (OpenAPI JSON: http://localhost:8080/v3/api-docs). Each endpoint has a ready-to-run example body under "Try it out".
