@@ -202,6 +202,23 @@ class CompareEndpointsTest {
         }
 
         @Test
+        void eachResultNamesTheUrlsThatWereCalled() throws Exception {
+            JsonNode report = call("/compare", null, status().isOk());
+
+            JsonNode different = result(report, "/customers/42/orders");
+            assertThat(different.get("sourceUrl").asText()).isEqualTo(SERVICES.baseUrl() + "/source/customers/42/orders");
+            assertThat(different.get("targetUrl").asText()).isEqualTo(SERVICES.baseUrl() + "/target/customers/42/orders");
+            // also when a call failed: both URLs were attempted
+            JsonNode error = result(report, "/customers/43/orders");
+            assertThat(error.get("status").asText()).isEqualTo("ERROR");
+            assertThat(error.get("sourceUrl").asText()).endsWith("/customers/43/orders");
+            assertThat(error.get("targetUrl").asText()).endsWith("/customers/43/orders");
+            // and the saved report of the path says it too
+            assertThat(json(Files.readString(OUTPUT_DIR.resolve(different.get("reportFile").asText()))).get("sourceUrl"))
+                    .isEqualTo(different.get("sourceUrl"));
+        }
+
+        @Test
         void credentialsAreOnlySentToSourceAndNeverSaved() throws Exception {
             SERVICES.clearRequests(); // other tests send their own headers
             call("/compare", null, status().isOk());
@@ -259,8 +276,12 @@ class CompareEndpointsTest {
             assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/index.html")).andExpect(status().isOk()).andReturn().getResponse()
                     .getContentAsString()).contains("Comparison report viewer").contains("js/app.js");
             assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/js/app.js")).andExpect(status().isOk())
-                    .andReturn().getResponse().getContentAsString()).contains("compare/custom");
+                    .andReturn().getResponse().getContentAsString()).contains("compare/custom").contains("compare/json");
             mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/css/report.css")).andExpect(status().isOk());
+            // the page that shows one returned document in its own tab
+            assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/doc.html")).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString()).contains("js/doc.js");
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/js/doc.js")).andExpect(status().isOk());
         }
     }
 
@@ -391,7 +412,7 @@ class CompareEndpointsTest {
             JsonNode inline = call("/compare/json", request.toString(), status().isOk()).at("/results/0");
 
             ObjectNode liveWithoutFiles = live.deepCopy();
-            liveWithoutFiles.remove(List.of("sourceFile", "targetFile", "reportFile"));
+            liveWithoutFiles.remove(List.of("sourceFile", "targetFile", "reportFile", "sourceUrl", "targetUrl"));
             assertThat(inline).isEqualTo(liveWithoutFiles);
         }
     }
@@ -440,6 +461,16 @@ class CompareEndpointsTest {
                 assertThat(headers).doesNotContainKey("client_id");
                 assertThat(headers).doesNotContainKey("client_secret");
             });
+        }
+
+        @Test
+        void calledUrlsJoinBaseAndPathWithASingleSlash() throws Exception {
+            JsonNode report = call("/compare/custom", customRequest(SERVICES.baseUrl() + "/alt/", SERVICES.baseUrl() + "/target//",
+                    "/products/1001"), status().isOk());
+
+            JsonNode result = result(report, "/products/1001");
+            assertThat(result.get("sourceUrl").asText()).isEqualTo(SERVICES.baseUrl() + "/alt/products/1001");
+            assertThat(result.get("targetUrl").asText()).isEqualTo(SERVICES.baseUrl() + "/target/products/1001");
         }
 
         @Test

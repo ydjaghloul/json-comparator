@@ -12,7 +12,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
  * {@code IDENTICAL} results have no {@code differences}, {@code ERROR} results have no counts.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({ "path", "status", "summary", "differenceCount", "byType", "differences", "sourceFile",
+@JsonPropertyOrder({ "path", "status", "summary", "differenceCount", "byType", "differences", "sourceUrl", "targetUrl", "sourceFile",
         "targetFile", "reportFile" })
 public record PathResult(
         String path,
@@ -21,6 +21,8 @@ public record PathResult(
         Integer differenceCount,
         Map<DifferenceType, Integer> byType,
         List<Difference> differences,
+        String sourceUrl,
+        String targetUrl,
         String sourceFile,
         String targetFile,
         String reportFile) {
@@ -28,8 +30,8 @@ public record PathResult(
     /** IDENTICAL when the list is empty, otherwise DIFFERENT with the full list, its count and counts by type. */
     public static PathResult compared(String path, List<Difference> differences, String sourceFile, String targetFile) {
         if (differences.isEmpty()) {
-            return new PathResult(path, ResultStatus.IDENTICAL, "identical", null, null, null, sourceFile, targetFile,
-                    null);
+            return new PathResult(path, ResultStatus.IDENTICAL, "identical", null, null, null, null, null, sourceFile,
+                    targetFile, null);
         }
         Map<DifferenceType, Integer> byType = new LinkedHashMap<>();
         for (Difference difference : differences) {
@@ -38,16 +40,23 @@ public record PathResult(
         int count = differences.size();
         String summary = count + (count == 1 ? " difference" : " differences");
         return new PathResult(path, ResultStatus.DIFFERENT, summary, count, byType, List.copyOf(differences),
-                sourceFile, targetFile, null);
+                null, null, sourceFile, targetFile, null);
     }
 
     public static PathResult error(String path, String message, String sourceFile, String targetFile) {
-        return new PathResult(path, ResultStatus.ERROR, message, null, null, null, sourceFile, targetFile, null);
+        return new PathResult(path, ResultStatus.ERROR, message, null, null, null, null, null, sourceFile, targetFile,
+                null);
+    }
+
+    /** Same result, with the URLs that were called (live comparisons only; informational, never credentials). */
+    public PathResult withUrls(String sourceUrl, String targetUrl) {
+        return new PathResult(path, status, summary, differenceCount, byType, differences, sourceUrl, targetUrl,
+                sourceFile, targetFile, reportFile);
     }
 
     /** Same result, with the location of its saved report (relative to {@code output.directory}). */
     public PathResult withReportFile(String reportFile) {
-        return new PathResult(path, status, summary, differenceCount, byType, differences, sourceFile, targetFile,
-                reportFile);
+        return new PathResult(path, status, summary, differenceCount, byType, differences, sourceUrl, targetUrl,
+                sourceFile, targetFile, reportFile);
     }
 }

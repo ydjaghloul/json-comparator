@@ -80,12 +80,14 @@ public class CompareService {
     public CompareReport compareAll(CompareOptions options, Map<String, String> sourceHeaders,
             Map<String, String> targetHeaders) {
         if (sourceHeaders.isEmpty() && targetHeaders.isEmpty()) {
-            return compareLive(sourceClient, targetClient, properties.paths(), resolve(options));
+            return compareLive(sourceClient, targetClient, properties.sourceService().baseUrl(),
+                    properties.targetService().baseUrl(), properties.paths(), resolve(options));
         }
         return compareLive(clientFactory.sourceClient(properties.sourceService().baseUrl(), sourceHeaders),
                 clientFactory.targetClient(properties.targetService().baseUrl(), properties.targetService(),
                         targetHeaders),
-                properties.paths(), resolve(options));
+                properties.sourceService().baseUrl(), properties.targetService().baseUrl(), properties.paths(),
+                resolve(options));
     }
 
     /**
@@ -102,23 +104,32 @@ public class CompareService {
             CompareOptions options, Map<String, String> sourceHeaders, Map<String, String> targetHeaders) {
         RestClient source = clientFactory.sourceClient(sourceBaseUrl, sourceHeaders);
         RestClient target = clientFactory.targetClient(targetBaseUrl, properties.targetService(), targetHeaders);
-        return compareLive(source, target, paths, resolve(options));
+        return compareLive(source, target, sourceBaseUrl, targetBaseUrl, paths, resolve(options));
     }
 
-    private CompareReport compareLive(RestClient source, RestClient target, List<String> paths,
-            CompareOptions options) {
+    private CompareReport compareLive(RestClient source, RestClient target, String sourceBaseUrl,
+            String targetBaseUrl, List<String> paths, CompareOptions options) {
         RunFolder run = storage.startRun();
         List<PathResult> results = new ArrayList<>();
         for (String path : paths) {
-            results.add(comparePath(source, target, run, path, options));
+            results.add(comparePath(source, target, sourceBaseUrl, targetBaseUrl, run, path, options));
         }
         CompareReport report = CompareReport.of(results, options);
         storage.save(run, FileStorageService.REPORT_FILE, report);
         return report;
     }
 
-    PathResult comparePath(RestClient sourceService, RestClient targetService, RunFolder run, String path,
-            CompareOptions options) {
+    /** The URL a path is fetched from: base URL and path joined by a single slash (informational). */
+    static String calledUrl(String baseUrl, String path) {
+        String base = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
+        String p = path == null ? "" : path.trim();
+        return base + (p.startsWith("/") ? p : "/" + p);
+    }
+
+    PathResult comparePath(RestClient sourceService, RestClient targetService, String sourceBaseUrl,
+            String targetBaseUrl, RunFolder run, String path, CompareOptions options) {
+        String sourceUrl = calledUrl(sourceBaseUrl, path);
+        String targetUrl = calledUrl(targetBaseUrl, path);
         try {
             Response source = fetch(sourceService, SOURCE_SERVICE, path);
             Response target = fetch(targetService, TARGET_SERVICE, path);
@@ -139,6 +150,7 @@ public class CompareService {
                 differences.addAll(comparator.compare(source.json(), target.json(), options));
                 result = PathResult.compared(path, differences, sourceFile, targetFile);
             }
+            result = result.withUrls(sourceUrl, targetUrl);
             // The report is saved with its own location, so the file says where its siblings are
             String reportFile = storage.relativize(
                     run.folder() == null ? null : run.folder().resolve(folder + FileStorageService.REPORT_FILE));
@@ -148,7 +160,7 @@ public class CompareService {
         }
         catch (RuntimeException e) {
             log.warn("Comparison failed for {}: {}", path, e.toString());
-            return PathResult.error(path, "comparison failed: " + e.getMessage(), null, null);
+            return PathResult.error(path, "comparison failed: " + e.getMessage(), null, null).withUrls(sourceUrl, targetUrl);
         }
     }
 

@@ -11,7 +11,10 @@
 
   var state = {
     report: null, name: '', docs: {}, status: 'ALL', query: '', types: {}, theme: null,
-    startTab: 'run', stash: null, request: null, running: null
+    startTab: 'services', stash: null, running: null,
+    form: { source: '', target: '', paths: [''], sh: [], th: [], showValues: false },
+    opts: { type: '', nul: '', order: '', ids: '' },
+    json: { name: '', source: '', target: '' }
   };
   var token = 0;
   var app = document.getElementById('app');
@@ -127,6 +130,7 @@
   window.addEventListener('drop', function (e) {
     if (!hasFiles(e)) return;
     e.preventDefault(); dragDepth = 0; overlay.classList.remove('show');
+    if (!state.report && state.startTab === 'json') return; // on the JSON tab files are dropped into the two text areas
     if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
   });
   function hasFiles(e) { return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; }
@@ -142,6 +146,11 @@
   /* ---------- derived data ---------- */
   function result(i) { return state.report.results[i]; }
   function diffCount(r) { return r.differenceCount || (r.differences ? r.differences.length : 0); }
+  function totalMismatches() { return state.report.results.reduce(function (n, r) { return n + diffCount(r); }, 0); }
+  function mismatchBadge() {
+    var n = totalMismatches();
+    return h('span', { class: 'badge ' + (n ? 'DIFFERENT' : 'IDENTICAL'), title: 'Total number of mismatches in this report', text: n ? plural(n, 'mismatch') : 'no mismatch' });
+  }
   function visibleResults() {
     var q = state.query.trim().toLowerCase();
     return state.report.results.map(function (r, i) { return { r: r, i: i }; }).filter(function (x) {
@@ -173,8 +182,10 @@
     return h('header', { class: 'topbar' },
       h('a', { class: 'brand', href: '#/' }, h('span', { class: 'brand-mark' }, svg('M3 3h4v10H3zM9 3h4v10H9z')), 'Comparison report'),
       state.name ? h('span', { class: 'report-name', title: state.name, text: state.name }) : null,
+      state.report ? mismatchBadge() : null,
       h('span', { class: 'spacer' }),
-      h('button', { class: 'btn small primary', onclick: function () { goStart('run'); } }, '▶ New comparison'),
+      h('button', { class: 'btn small primary', onclick: function () { goStart('services'); } }, '▶ New comparison'),
+      h('button', { class: 'btn small', onclick: function () { goStart('json'); } }, 'Compare JSON'),
       h('button', { class: 'btn small', onclick: function () { goStart('open'); } }, 'Open a report'),
       h('button', {
         class: 'btn small ghost', title: 'Toggle dark mode', 'aria-label': 'Toggle dark mode', onclick: function () {
@@ -212,7 +223,8 @@
     });
     return h('aside', { class: 'sidebar' },
       h('div', { class: 'sidebar-head' },
-        h('a', { class: 'nav-overview' + (rt.page === 'overview' ? ' active' : ''), href: '#/' }, '▦ Overview'),
+        h('a', { class: 'nav-overview' + (rt.page === 'overview' ? ' active' : ''), href: '#/' }, '▦ Overview',
+          h('span', { class: 'count' + (totalMismatches() ? '' : ' zero'), title: 'Total mismatches', text: String(totalMismatches()) })),
         search, chips),
       list);
   }
@@ -226,9 +238,19 @@
     var s = state.report.summary || {};
     var counts = statusCounts();
     var total = state.report.results.length;
-    main.appendChild(h('div', { class: 'card card-pad' },
-      h('div', { class: 'page-title' }, h('h1', { text: 'Overview', style: 'font-family:inherit' }),
-        h('span', { class: 'sub', text: plural(total, 'path') + ' compared' })),
+    var mismatches = totalMismatches();
+    var byTypeHero = {};
+    state.report.results.forEach(function (r) { (r.differences || []).forEach(function (d) { byTypeHero[d.type] = (byTypeHero[d.type] || 0) + 1; }); });
+    var heroTypes = h('div', { class: 'mini-types' });
+    TYPE_ORDER.forEach(function (t) { if (byTypeHero[t]) heroTypes.appendChild(h('span', { class: 'badge ' + t, text: TYPE_LABEL[t] + ' ' + byTypeHero[t] })); });
+    main.appendChild(h('div', { class: 'card card-pad hero-card' + (mismatches ? ' has' : ' none') },
+      h('div', { class: 'mismatch-hero' },
+        h('div', { class: 'mismatch-n', text: String(mismatches) }),
+        h('div', null,
+          h('div', { class: 'mismatch-l', text: mismatches === 1 ? 'mismatch' : 'mismatches' }),
+          h('div', { class: 'sub', text: mismatches ? 'in ' + plural(counts.DIFFERENT, 'path') + ' out of ' + total + (counts.ERROR ? ' · ' + plural(counts.ERROR, 'path') + ' could not be compared' : '')
+            : 'No difference found in ' + plural(total - counts.ERROR, 'compared path') + (counts.ERROR ? ' · ' + plural(counts.ERROR, 'path') + ' could not be compared' : '') }),
+          mismatches ? heroTypes : null)),
       h('div', { class: 'opts' },
         opt('typeMatching', s.typeMatching), opt('nullMatching', s.nullMatching),
         s.orderStrict === undefined ? null : opt('orderStrict', String(s.orderStrict)))));
@@ -278,18 +300,68 @@
         h('td', null, h('span', { class: 'badge ' + r.status, text: r.status })),
         h('td', { class: 'pathcell', text: r.path }),
         h('td', { text: r.status === 'ERROR' ? '—' : String(diffCount(r)) }),
-        h('td', null, r.status === 'ERROR' ? h('span', { class: 'sub', text: truncate(r.summary || '', 90) }) : types));
+        h('td', null, r.status === 'ERROR' ? h('span', { class: 'sub', text: truncate(r.summary || '', 90) }) : types),
+        h('td', { class: 'actioncell' }, h('button', { class: 'btn small', type: 'button', title: 'Open the source and target JSON in two tabs', 'aria-label': 'Open source and target of ' + r.path + ' in two tabs',
+          disabled: (hasDoc(x.i, 'source') || hasDoc(x.i, 'target')) ? null : true, text: '↗ 2 tabs',
+          onclick: function (ev) { ev.stopPropagation(); openBoth(x.i); } })));
       row.addEventListener('keydown', function (e) { if (e.key === 'Enter') location.hash = '#/p/' + x.i; });
       body.appendChild(row);
     });
     main.appendChild(h('div', { class: 'card' },
       h('div', { class: 'card-pad', style: 'padding-bottom:6px' }, h('h2', { text: 'Paths' })),
       items.length ? h('table', { class: 'paths' },
-        h('thead', null, h('tr', null, h('th', { text: 'Status' }), h('th', { text: 'Path' }), h('th', { text: 'Differences' }), h('th', { text: 'Details' }))), body)
+        h('thead', null, h('tr', null, h('th', { text: 'Status' }), h('th', { text: 'Path' }), h('th', { text: 'Differences' }), h('th', { text: 'Details' }), h('th', { text: '' }))), body)
         : h('div', { class: 'empty', text: 'No path matches the filter.' })));
   }
   function opt(name, value) { return value === undefined ? null : h('span', { class: 'opt' }, h('b', { text: name }), String(value)); }
   function tile(n, label, cls) { return h('div', { class: 'tile ' + cls }, h('div', { class: 'n', text: String(n) }), h('div', { class: 'l', text: label })); }
+
+  /* ---------- open the JSON a service returned in its own tab ---------- */
+  var pendingDocs = []; // documents that only exist in this page, handed over when the new tab asks for them
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || !e.data || e.data.type !== 'doc-ready') return;
+    var entry = pendingDocs.filter(function (p) { return p.win === e.source; })[0];
+    if (entry) { e.source.postMessage({ type: 'doc', doc: entry.doc }, location.origin); pendingDocs = pendingDocs.filter(function (p) { return p !== entry; }); }
+  });
+  function hasDoc(i, side) {
+    var entry = state.docs[i];
+    return !!(result(i)[side + 'File'] || (entry && entry[side] !== undefined));
+  }
+  /** Opens one document in a new tab; returns false when nothing could be opened. */
+  function openDoc(i, side) {
+    var r = result(i), entry = state.docs[i];
+    var label = (side === 'source' ? 'Source' : 'Target') + ' · ' + r.path;
+    var q = '?side=' + side + '&title=' + encodeURIComponent(label) + (r[side + 'Url'] ? '&url=' + encodeURIComponent(r[side + 'Url']) : '');
+    if (r[side + 'File']) { // saved on the server: the tab has its own address, which can be shared
+      var w = window.open('doc.html' + q + '&path=' + encodeURIComponent(r[side + 'File']), '_blank', 'noopener');
+      return w !== null;
+    }
+    if (entry && entry[side] !== undefined) {
+      var win = window.open('doc.html' + q + '&mem=1', '_blank');
+      if (!win) return false;
+      pendingDocs.push({ win: win, doc: entry[side] });
+      return true;
+    }
+    toast('No ' + side + ' document was returned for this path.');
+    return false;
+  }
+  function openBoth(i) {
+    var a = openDoc(i, 'source'), b = openDoc(i, 'target');
+    if (a && !b && hasDoc(i, 'target')) toast('The browser blocked the second tab: allow pop-ups for this site, or use the two buttons.');
+    if (!a && !b && (hasDoc(i, 'source') || hasDoc(i, 'target'))) toast('The browser blocked the new tabs: allow pop-ups for this site.');
+  }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast('Copied'); }, function () { toast('Copy failed'); });
+  }
+  function sourceLine(i, side) {
+    var r = result(i), url = r[side + 'Url'], ok = hasDoc(i, side);
+    return h('div', { class: 'src-line' },
+      h('span', { class: 'badge ' + (side === 'source' ? 'MISSING_IN_TARGET' : 'MISSING_IN_SOURCE'), text: side === 'source' ? 'SOURCE' : 'TARGET' }),
+      url ? h('code', { class: 'mono src-url', title: url, text: url }) : h('span', { class: 'sub', text: 'URL not recorded in this report' }),
+      url ? h('button', { class: 'btn small', type: 'button', text: 'Copy URL', onclick: function () { copyText(url); } }) : null,
+      h('button', { class: 'btn small', type: 'button', text: 'Open JSON ↗', disabled: ok ? null : true,
+        title: ok ? 'Open the JSON returned by the ' + side + ' in a new tab' : 'No document was returned', onclick: function () { openDoc(i, side); } }));
+  }
 
   /* ---------- path page ---------- */
   function pathPage(main, i, tab) {
@@ -307,6 +379,9 @@
           h('a', { class: 'btn small', href: i > 0 ? '#/p/' + (i - 1) : null, 'aria-disabled': i === 0 ? 'true' : null, text: '← Prev' }),
           h('a', { class: 'btn small', href: i < total - 1 ? '#/p/' + (i + 1) : null, 'aria-disabled': i === total - 1 ? 'true' : null, text: 'Next →' }))),
       h('div', { class: 'sub', style: 'margin-top:6px', text: r.status === 'ERROR' ? '' : (r.summary || '') }),
+      h('div', { class: 'sources' }, sourceLine(i, 'source'), sourceLine(i, 'target'),
+        h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', disabled: (hasDoc(i, 'source') || hasDoc(i, 'target')) ? null : true,
+          text: '↗ Open source and target in two tabs', title: 'Show the JSON returned by each service in its own tab, to check it with the team', onclick: function () { openBoth(i); } }))),
       r.status === 'ERROR' ? h('div', { class: 'banner err', style: 'margin-top:10px' }, h('b', { text: 'Comparison failed' }), h('span', { text: r.summary || 'unknown error' })) : null,
       r.status === 'IDENTICAL' ? h('div', { class: 'banner ok', style: 'margin-top:10px' }, h('b', { text: 'Identical' }), h('span', { text: 'Source and target are semantically equal.' })) : null));
 
@@ -569,7 +644,7 @@
     return h('span', null, input, h('label', { class: 'btn small', for: 'pick-' + side, text: 'Attach ' + side + '…' }));
   }
 
-  /* ---------- start page: run a comparison / open a report ---------- */
+  /* ---------- start page: compare two services / compare two JSON / open a report ---------- */
   function goStart(tab) {
     if (state.report) state.stash = { report: state.report, name: state.name, docs: state.docs, status: state.status, query: state.query };
     state.report = null; state.startTab = tab;
@@ -581,105 +656,259 @@
     render();
   }
 
-  var EXAMPLE_REQUEST = {
-    sourceBaseUrl: 'https://source.example.com',
-    targetBaseUrl: 'https://target.example.com',
-    paths: ['/customers/42/orders', '/products/1001'],
-    sourceHeaders: { Authorization: 'Bearer <token>' },
-    targetHeaders: { 'X-Api-Key': '<key>' }
-  };
+  var HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+  var FORBIDDEN_HEADERS = ['host', 'content-length', 'transfer-encoding', 'connection', 'upgrade', 'te', 'trailer', 'expect'];
 
-  /** Validates the request JSON the same way the server does, to answer before any call. */
-  function checkRequest(text) {
-    var body;
-    try { body = JSON.parse(text); } catch (e) { return { error: 'Not valid JSON: ' + e.message }; }
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'The request must be a JSON object.' };
-    var badUrl = ['sourceBaseUrl', 'targetBaseUrl'].filter(function (k) { return !/^https?:\/\/[^\s/]+/i.test(String(body[k] || '')); })[0];
-    if (badUrl) return { error: badUrl + ' must be an absolute http or https URL.' };
-    if (!Array.isArray(body.paths) || !body.paths.length) return { error: 'paths must be a non-empty list.' };
-    if (body.paths.some(function (p) { return typeof p !== 'string' || !p.trim(); })) return { error: 'paths must not contain blank entries.' };
-    return { body: body };
+  /* base URLs used before (not secret) are offered as suggestions */
+  function recentUrls() { try { return JSON.parse(store('viewer-urls') || '[]'); } catch (e) { return []; } }
+  function rememberUrls(urls) {
+    var list = urls.concat(recentUrls()).filter(function (u, i, all) { return u && all.indexOf(u) === i; }).slice(0, 8);
+    store('viewer-urls', JSON.stringify(list));
   }
 
-  function runComparison(text, options, ui) {
-    var checked = checkRequest(text);
-    if (checked.error) { ui.fail(checked.error); return; }
+  function cleanHeaders(rows) {
+    var out = {};
+    rows.forEach(function (r) { if (r.name.trim()) out[r.name.trim()] = r.value; });
+    return out;
+  }
+  /** The body of POST /compare/custom built from the form. */
+  function buildRequest(f) {
+    var req = { sourceBaseUrl: f.source.trim(), targetBaseUrl: f.target.trim(),
+      paths: f.paths.map(function (p) { return p.trim(); }).filter(Boolean) };
+    var sh = cleanHeaders(f.sh), th = cleanHeaders(f.th);
+    if (Object.keys(sh).length) req.sourceHeaders = sh;
+    if (Object.keys(th).length) req.targetHeaders = th;
+    return req;
+  }
+  /** Same rules as the server, answered before any call. Returns {field: message}. */
+  function validateForm(f) {
+    var errors = {};
+    function url(key, value, label) {
+      if (!value.trim()) errors[key] = label + ' is required.';
+      else if (!/^https?:\/\/[^\s/]+/i.test(value.trim())) errors[key] = label + ' must be an absolute http or https URL.';
+    }
+    url('source', f.source, 'The source URL'); url('target', f.target, 'The target URL');
+    if (!f.paths.some(function (p) { return p.trim(); })) errors.paths = 'Add at least one path.';
+    [['sh', 'source'], ['th', 'target']].forEach(function (k) {
+      var seen = {};
+      f[k[0]].forEach(function (r) {
+        var n = r.name.trim(); if (!n && !r.value) return;
+        if (!HEADER_NAME.test(n)) errors.headers = 'Invalid ' + k[1] + ' header name.';
+        else if (FORBIDDEN_HEADERS.indexOf(n.toLowerCase()) >= 0) errors.headers = 'The header ' + n + ' cannot be set.';
+        else if (seen[n.toLowerCase()]) errors.headers = 'Duplicate ' + k[1] + ' header ' + n + '.';
+        seen[n.toLowerCase()] = true;
+      });
+    });
+    return errors;
+  }
+  function queryOf(o) {
     var q = [];
-    if (options.typeMatching) q.push('typeMatching=' + options.typeMatching);
-    if (options.nullMatching) q.push('nullMatching=' + options.nullMatching);
-    if (options.orderStrict) q.push('orderStrict=' + options.orderStrict);
-    if (options.idProperties) q.push('idProperties=' + encodeURIComponent(options.idProperties));
+    if (o.type) q.push('typeMatching=' + o.type);
+    if (o.nul) q.push('nullMatching=' + o.nul);
+    if (o.order) q.push('orderStrict=' + o.order);
+    if (o.ids.trim()) q.push('idProperties=' + encodeURIComponent(o.ids.trim()));
+    return q.length ? '?' + q.join('&') : '';
+  }
+
+  /** POST a JSON body, show progress through ui, and give the report to onReport. */
+  function post(url, body, ui, onReport) {
     var controller = new AbortController();
     state.running = controller;
     ui.busy(true);
-    var started = Date.now();
-    fetch('compare/custom' + (q.length ? '?' + q.join('&') : ''), {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: text, signal: controller.signal
-    }).then(function (r) {
-      return r.text().then(function (t) {
-        var data = null; try { data = JSON.parse(t); } catch (e) { /* not JSON */ }
-        if (!r.ok) throw new Error((data && (data.detail || data.message || data.error)) || ('HTTP ' + r.status));
-        if (!data) throw new Error('The server did not return a report.');
-        return data;
-      });
-    }).then(function (data) {
-      state.request = text; state.running = null;
-      var secs = ((Date.now() - started) / 1000).toFixed(1);
-      loadReport(data, 'live run · ' + new Date().toLocaleTimeString() + ' · ' + secs + 's');
-    }).catch(function (e) {
-      state.running = null; ui.busy(false);
-      ui.fail(e.name === 'AbortError' ? 'Comparison cancelled.' : e.message);
-    });
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body), signal: controller.signal })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          var data = null; try { data = JSON.parse(t); } catch (e) { /* not JSON */ }
+          if (!r.ok) throw new Error((data && (data.detail || data.message || data.error)) || ('HTTP ' + r.status));
+          if (!data) throw new Error('The server did not return a report.');
+          return data;
+        });
+      })
+      .then(function (data) { state.running = null; onReport(data); })
+      .catch(function (e) { state.running = null; ui.busy(false); ui.fail(e.name === 'AbortError' ? 'Cancelled.' : e.message); });
   }
 
-  function runPanel() {
-    var editor = h('textarea', {
-      class: 'editor', spellcheck: 'false', autocapitalize: 'off', 'aria-label': 'Request body of POST /compare/custom',
-      placeholder: JSON.stringify(EXAMPLE_REQUEST, null, 2)
-    });
-    editor.value = state.request || '';
-    var status = h('div', { class: 'form-status', role: 'status' });
-    var errorBox = h('div', { class: 'banner err', role: 'alert', style: 'display:none' });
-    function validate() {
-      if (!editor.value.trim()) { status.textContent = ''; status.className = 'form-status'; return; }
-      var c = checkRequest(editor.value);
-      if (c.error) { status.textContent = '✗ ' + c.error; status.className = 'form-status bad'; }
-      else { status.textContent = '✓ ' + plural(c.body.paths.length, 'path') + ' · ' + c.body.sourceBaseUrl + ' → ' + c.body.targetBaseUrl; status.className = 'form-status ok'; }
+  /* ----- small building blocks ----- */
+  function field(label, control, error, hint) {
+    return h('div', { class: 'field' }, h('label', { text: label }), control,
+      error ? h('div', { class: 'field-err', role: 'alert', text: error }) : null, hint ? h('div', { class: 'hint', text: hint }) : null);
+  }
+  function optionsBox(idPrefix) {
+    function sel(label, key, opts) {
+      var el = h('select', { class: 'select', id: idPrefix + key });
+      opts.forEach(function (o) { el.appendChild(h('option', { value: o[0], text: o[1] })); });
+      el.value = state.opts[key];
+      el.addEventListener('change', function () { state.opts[key] = el.value; });
+      return h('div', { class: 'field' }, h('label', { for: idPrefix + key, text: label }), el);
     }
-    editor.addEventListener('input', function () { state.request = editor.value; errorBox.style.display = 'none'; validate(); });
-    validate();
-
-    function select(label, id, opts) {
-      var sel = h('select', { id: id, class: 'select' });
-      opts.forEach(function (o) { sel.appendChild(h('option', { value: o[0], text: o[1] })); });
-      return h('div', { class: 'field' }, h('label', { for: id, text: label }), sel);
-    }
-    var type = select('Type matching', 'opt-type', [['', 'Default'], ['STRICT', 'Strict'], ['LENIENT', 'Lenient ("11" = 11)']]);
-    var nul = select('Null matching', 'opt-null', [['', 'Default'], ['STRICT', 'Strict'], ['LENIENT', 'Lenient (null = absent)']]);
-    var order = select('Array order', 'opt-order', [['', 'Default'], ['false', 'Order does not matter'], ['true', 'Order is strict']]);
-    var ids = h('div', { class: 'field' }, h('label', { for: 'opt-ids', text: 'Id properties' }),
-      h('input', { id: 'opt-ids', class: 'input', placeholder: 'id,code (default: configured)', autocomplete: 'off' }));
-    var go = h('button', { class: 'btn primary big', type: 'button' }, h('span', { class: 'btn-label', text: '▶ Run comparison' }));
+    var ids = h('input', { class: 'input', id: idPrefix + 'ids', placeholder: 'id,code (default: configured)', autocomplete: 'off' });
+    ids.value = state.opts.ids;
+    ids.addEventListener('input', function () { state.opts.ids = ids.value; });
+    return h('details', { class: 'more' }, h('summary', { text: 'Options' }),
+      h('div', { class: 'form-grid' },
+        sel('Type matching', 'type', [['', 'Default'], ['STRICT', 'Strict'], ['LENIENT', 'Lenient ("11" = 11)']]),
+        sel('Null matching', 'nul', [['', 'Default'], ['STRICT', 'Strict'], ['LENIENT', 'Lenient (null = absent)']]),
+        sel('Array order', 'order', [['', 'Default'], ['false', 'Order does not matter'], ['true', 'Order is strict']]),
+        h('div', { class: 'field' }, h('label', { for: idPrefix + 'ids', text: 'Id properties' }), ids)));
+  }
+  function runBar(label, onRun) {
+    var go = h('button', { class: 'btn primary big', type: 'button' }, h('span', { class: 'btn-label', text: label }));
     var cancel = h('button', { class: 'btn', type: 'button', style: 'display:none', text: 'Cancel', onclick: function () { if (state.running) state.running.abort(); } });
+    var errorBox = h('div', { class: 'banner err', role: 'alert', style: 'display:none' });
     var ui = {
-      busy: function (on) { go.disabled = on; go.classList.toggle('loading', on); go.querySelector('.btn-label').textContent = on ? 'Comparing…' : '▶ Run comparison'; cancel.style.display = on ? '' : 'none'; if (on) errorBox.style.display = 'none'; },
-      fail: function (msg) { errorBox.style.display = ''; clear(errorBox); errorBox.appendChild(h('b', { text: 'Could not run the comparison' })); errorBox.appendChild(h('span', { text: msg })); }
+      busy: function (on) { go.disabled = on; go.classList.toggle('loading', on); go.querySelector('.btn-label').textContent = on ? 'Comparing…' : label; cancel.style.display = on ? '' : 'none'; if (on) errorBox.style.display = 'none'; },
+      fail: function (msg) { errorBox.style.display = ''; clear(errorBox); errorBox.appendChild(h('b', { text: 'Could not compare' })); errorBox.appendChild(h('span', { text: msg })); }
     };
-    function value(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
-    go.addEventListener('click', function () {
-      runComparison(editor.value, { typeMatching: value('opt-type'), nullMatching: value('opt-null'), orderStrict: value('opt-order'), idProperties: value('opt-ids') }, ui);
-    });
-    editor.addEventListener('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); go.click(); } });
-
-    return h('div', { class: 'panel' },
-      h('div', { class: 'panel-head' },
-        h('div', null, h('h2', { text: 'Run a comparison' }), h('p', { class: 'sub', text: 'The JSON body of POST /compare/custom: both base URLs, the paths and, if needed, headers for each side.' })),
-        h('button', { class: 'btn small', type: 'button', text: 'Insert an example', onclick: function () { editor.value = JSON.stringify(EXAMPLE_REQUEST, null, 2); state.request = editor.value; validate(); editor.focus(); } })),
-      editor, status, errorBox,
-      h('div', { class: 'form-grid' }, type, nul, order, ids),
-      h('div', { class: 'row' }, go, cancel, h('span', { class: 'hint', text: 'Ctrl/⌘ + Enter to run. Header values are only sent to the services you name; they are not stored.' })));
+    go.addEventListener('click', function () { onRun(ui); });
+    return { ui: ui, el: h('div', null, errorBox, h('div', { class: 'row', style: 'margin-top:12px' }, go, cancel)) , go: go };
   }
 
+  /* ----- tab 1: compare two services ----- */
+  function servicesPanel() {
+    var f = state.form, holder = h('div'), showErrors = false;
+    function paint(focus) { clear(holder); holder.appendChild(build()); if (focus) { var el = holder.querySelector(focus); if (el) el.focus(); } }
+
+    function urlInput(key, placeholder) {
+      var i = h('input', { class: 'input', type: 'url', list: 'recent-urls', placeholder: placeholder, autocomplete: 'off', spellcheck: 'false', 'aria-label': key + ' base URL' });
+      i.value = f[key];
+      i.addEventListener('input', function () { f[key] = i.value; refreshStatus(); });
+      return i;
+    }
+    function kvList(key, title) {
+      var rows = h('div', { class: 'kv' });
+      f[key].forEach(function (r, n) {
+        var name = h('input', { class: 'input', placeholder: 'Header name', autocomplete: 'off', spellcheck: 'false', 'aria-label': title + ' header name' }); name.value = r.name;
+        var value = h('input', { class: 'input', type: f.showValues ? 'text' : 'password', placeholder: 'Value', autocomplete: 'off', 'aria-label': title + ' header value' }); value.value = r.value;
+        name.addEventListener('input', function () { r.name = name.value; refreshStatus(); });
+        value.addEventListener('input', function () { r.value = value.value; refreshStatus(); });
+        rows.appendChild(h('div', { class: 'kv-row' }, name, value,
+          h('button', { class: 'icon-btn', type: 'button', title: 'Remove', 'aria-label': 'Remove header', text: '✕', onclick: function () { f[key].splice(n, 1); paint(); } })));
+      });
+      return h('div', null, h('div', { class: 'kv-title', text: title }), rows,
+        h('button', { class: 'btn small', type: 'button', text: '+ Add header', onclick: function () { f[key].push({ name: '', value: '' }); paint('.kv-row:last-child input'); } }));
+    }
+    function pathsList() {
+      var list = h('div', { class: 'paths-list' });
+      f.paths.forEach(function (p, n) {
+        var input = h('input', { class: 'input', placeholder: '/customers/42/orders', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Path ' + (n + 1) });
+        input.value = p;
+        input.addEventListener('input', function () { f.paths[n] = input.value; refreshStatus(); });
+        input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); f.paths.splice(n + 1, 0, ''); paint('.paths-list .path-row:nth-child(' + (n + 2) + ') input'); } });
+        input.addEventListener('paste', function (e) { // several paths pasted at once, one per line
+          var text = (e.clipboardData || window.clipboardData).getData('text');
+          if (!/[\r\n]/.test(text)) return;
+          e.preventDefault();
+          var lines = text.split(/\r?\n/).map(function (x) { return x.trim(); }).filter(Boolean);
+          f.paths.splice.apply(f.paths, [n, 1].concat(lines)); paint();
+        });
+        list.appendChild(h('div', { class: 'path-row' }, h('span', { class: 'path-no', text: String(n + 1) }), input,
+          h('button', { class: 'icon-btn', type: 'button', title: 'Remove', 'aria-label': 'Remove path ' + (n + 1), text: '✕', onclick: function () { f.paths.splice(n, 1); if (!f.paths.length) f.paths.push(''); paint(); } })));
+      });
+      return list;
+    }
+
+    var status = h('div', { class: 'form-status', role: 'status' });
+    var preview = h('pre', { class: 'code-preview mono' });
+    function refreshStatus() {
+      var errors = validateForm(f), req = buildRequest(f);
+      var n = req.paths.length;
+      if (!f.source && !f.target && !n) { status.textContent = ''; status.className = 'form-status'; }
+      else if (Object.keys(errors).length) { status.textContent = '✗ ' + errors[Object.keys(errors)[0]]; status.className = 'form-status bad'; }
+      else { status.textContent = '✓ ' + plural(n, 'path') + ' · ' + req.sourceBaseUrl + ' → ' + req.targetBaseUrl; status.className = 'form-status ok'; }
+      var masked = JSON.parse(JSON.stringify(req));
+      ['sourceHeaders', 'targetHeaders'].forEach(function (k) { if (masked[k]) Object.keys(masked[k]).forEach(function (h2) { masked[k][h2] = '••••'; }); });
+      preview.textContent = JSON.stringify(masked, null, 2);
+    }
+
+    function build() {
+      var errors = showErrors ? validateForm(f) : {};
+      var bar = runBar('▶ Run comparison', function (ui) {
+        showErrors = true; var errs = validateForm(f);
+        if (Object.keys(errs).length) { paint(); return; }
+        var req = buildRequest(f);
+        var started = Date.now();
+        post('compare/custom' + queryOf(state.opts), req, ui, function (data) {
+          rememberUrls([req.sourceBaseUrl, req.targetBaseUrl]);
+          loadReport(data, 'live run · ' + new Date().toLocaleTimeString() + ' · ' + ((Date.now() - started) / 1000).toFixed(1) + 's');
+        });
+      });
+      var datalist = h('datalist', { id: 'recent-urls' }); recentUrls().forEach(function (u) { datalist.appendChild(h('option', { value: u })); });
+      var imp = h('textarea', { class: 'editor short', spellcheck: 'false', placeholder: '{"sourceBaseUrl": "...", "targetBaseUrl": "...", "paths": ["/a", "/b"], "sourceHeaders": {...}}', 'aria-label': 'Request JSON' });
+      var impErr = h('div', { class: 'field-err', role: 'alert' });
+      var el = h('div', { class: 'stack' },
+        h('div', { class: 'two' },
+          field('Source (reference)', urlInput('source', 'https://source.example.com'), errors.source),
+          field('Target', urlInput('target', 'https://target.example.com'), errors.target)),
+        datalist,
+        field('Paths to compare', pathsList(), errors.paths, 'Appended to both base URLs. Press Enter for a new line, or paste a list (one path per line).'),
+        h('button', { class: 'btn small', type: 'button', text: '+ Add path', onclick: function () { f.paths.push(''); paint('.paths-list .path-row:last-child input'); } }),
+        h('details', { class: 'more', open: (f.sh.length || f.th.length || errors.headers) ? true : null }, h('summary', { text: 'Headers (optional)' }),
+          h('div', { class: 'two' }, kvList('sh', 'Source headers'), kvList('th', 'Target headers')),
+          errors.headers ? h('div', { class: 'field-err', role: 'alert', text: errors.headers }) : null,
+          h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: f.showValues ? true : null, onchange: function (e) { f.showValues = e.target.checked; paint(); } }), 'Show values')),
+        optionsBox('svc-'),
+        h('details', { class: 'more' }, h('summary', { text: 'Request JSON' }),
+          h('p', { class: 'hint', text: 'What is sent to POST /compare/custom (header values hidden). You can also fill the form from a request JSON:' }), preview,
+          imp, impErr,
+          h('button', { class: 'btn small', type: 'button', text: 'Fill the form from this JSON', onclick: function () {
+            var body; impErr.textContent = '';
+            try { body = JSON.parse(imp.value); } catch (e) { impErr.textContent = 'Not valid JSON: ' + e.message; return; }
+            if (!body || typeof body !== 'object' || Array.isArray(body)) { impErr.textContent = 'Expected a JSON object.'; return; }
+            f.source = String(body.sourceBaseUrl || ''); f.target = String(body.targetBaseUrl || '');
+            f.paths = Array.isArray(body.paths) && body.paths.length ? body.paths.map(String) : [''];
+            function rows(o) { return o && typeof o === 'object' ? Object.keys(o).map(function (k) { return { name: k, value: String(o[k]) }; }) : []; }
+            f.sh = rows(body.sourceHeaders); f.th = rows(body.targetHeaders);
+            paint();
+          } })),
+        status, bar.el);
+      setTimeout(refreshStatus, 0);
+      return el;
+    }
+    paint();
+    return h('div', { class: 'panel' },
+      h('div', { class: 'panel-head' }, h('div', null, h('h2', { text: 'Compare two services' }), h('p', { class: 'sub', text: 'Give the source, the target and the paths: each path is fetched from both and compared.' }))),
+      holder);
+  }
+
+  /* ----- tab 2: compare two JSON documents ----- */
+  function jsonPanel() {
+    var j = state.json;
+    function side(key, title) {
+      var area = h('textarea', { class: 'editor', spellcheck: 'false', placeholder: 'Paste the ' + key + ' JSON here, or choose / drop a file', 'aria-label': title + ' JSON' });
+      area.value = j[key];
+      area.addEventListener('input', function () { j[key] = area.value; });
+      var input = h('input', { type: 'file', accept: '.json,application/json', class: 'sr-only', id: 'json-file-' + key });
+      function readFile(file) { var rd = new FileReader(); rd.onload = function () { area.value = String(rd.result); j[key] = area.value; }; rd.readAsText(file); }
+      input.addEventListener('change', function () { if (input.files[0]) readFile(input.files[0]); });
+      area.addEventListener('dragover', function (e) { e.preventDefault(); area.classList.add('over'); });
+      area.addEventListener('dragleave', function () { area.classList.remove('over'); });
+      area.addEventListener('drop', function (e) { e.preventDefault(); e.stopPropagation(); area.classList.remove('over'); dragDepth = 0; overlay.classList.remove('show'); if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); });
+      return h('div', { class: 'field' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('label', { text: title }),
+        h('span', null, input, h('label', { class: 'btn small', for: 'json-file-' + key, text: 'Choose a file…' }))), area);
+    }
+    var name = h('input', { class: 'input', placeholder: 'inline', autocomplete: 'off', 'aria-label': 'Name' }); name.value = j.name;
+    name.addEventListener('input', function () { j.name = name.value; });
+    var bar = runBar('▶ Compare', function (ui) {
+      var docs = {};
+      for (var k = 0; k < 2; k++) {
+        var key = k ? 'target' : 'source';
+        if (!j[key].trim()) { ui.fail('The ' + key + ' JSON is empty.'); return; }
+        try { docs[key] = JSON.parse(j[key]); } catch (e) { ui.fail('The ' + key + ' JSON is not valid: ' + e.message); return; }
+      }
+      var label = j.name.trim() || 'inline';
+      post('compare/json' + queryOf(state.opts), { name: label, source: docs.source, target: docs.target }, ui, function (data) {
+        loadReport(data, 'JSON comparison', { 0: { source: docs.source, target: docs.target } });
+      });
+    });
+    return h('div', { class: 'panel' },
+      h('div', { class: 'panel-head' }, h('div', null, h('h2', { text: 'Compare two JSON documents' }), h('p', { class: 'sub', text: 'Paste or load a source and a target; nothing is called or saved.' }))),
+      h('div', { class: 'two' }, side('source', 'Source (reference)'), side('target', 'Target')),
+      h('div', { class: 'two' }, h('div', { class: 'field' }, h('label', { text: 'Name (optional)' }), name), h('div')),
+      optionsBox('json-'),
+      bar.el);
+  }
+
+  /* ----- tab 3: open a report ----- */
   function openPanel() {
     var paste = h('textarea', { class: 'editor short', spellcheck: 'false', placeholder: 'Paste the JSON returned by POST /compare, /compare/custom, /compare/files or /compare/json…', 'aria-label': 'Report JSON' });
     var fileInput = h('input', { type: 'file', accept: '.json,application/json', class: 'sr-only', id: 'file-input' });
@@ -711,7 +940,7 @@
 
   function landing() {
     var tab = state.startTab;
-    var body = h('div', { class: 'tab-body' }, tab === 'run' ? runPanel() : openPanel());
+    var panel = tab === 'services' ? servicesPanel() : tab === 'json' ? jsonPanel() : openPanel();
     function segment(id, label) {
       return h('button', { class: 'seg-btn' + (tab === id ? ' on' : ''), type: 'button', role: 'tab', 'aria-selected': tab === id ? 'true' : 'false', text: label,
         onclick: function () { state.startTab = id; render(); } });
@@ -721,10 +950,9 @@
         h('span', { style: 'flex:1' }),
         state.stash ? h('button', { class: 'btn small', type: 'button', text: '← Back to the report', onclick: restoreStash }) : null,
         h('button', { class: 'btn small ghost', type: 'button', onclick: function () { var n = isDark() ? 'light' : 'dark'; applyTheme(n); store('viewer-theme', n); render(); }, text: isDark() ? '☀ Light' : '☾ Dark' })),
-      h('div', { class: 'hero' }, h('h1', null, 'See exactly what ', h('span', { class: 'grad', text: 'differs' }), '.'),
-        h('p', { text: 'Run a comparison between two services, or open an existing report. Get one page per path, every difference with its exact location, and the source and target side by side with the differing parts highlighted.' })),
-      h('div', { class: 'seg', role: 'tablist' }, segment('run', '▶ Run a comparison'), segment('open', '📂 Open a report')),
-      body);
+      h('div', { class: 'hero' }, h('h1', null, 'See exactly what ', h('span', { class: 'grad', text: 'differs' }), '.')),
+      h('div', { class: 'seg', role: 'tablist' }, segment('services', '⇄ Two services'), segment('json', '{ } Two JSON'), segment('open', '📂 Open a report')),
+      panel);
   }
 
   render();
