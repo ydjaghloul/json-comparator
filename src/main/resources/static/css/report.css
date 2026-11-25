@@ -303,3 +303,63 @@ td.pathcell { font-family: var(--mono); font-size: 13px; word-break: break-all; 
   .layout { display: block; padding: 0; }
   .code { max-height: none; }
 }
+
+/* ---------- start page forms ---------- */
+.stack { display: grid; gap: 16px; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.field-err { color: var(--bad); font-size: 12.5px; font-weight: 600; }
+.paths-list { display: grid; gap: 8px; }
+.path-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) 34px; gap: 8px; align-items: center; }
+.path-no { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); }
+.icon-btn:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); background: var(--bad-bg); }
+details.more { border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2); padding: 0 14px; }
+details.more > summary { cursor: pointer; padding: 11px 0; font-weight: 650; list-style: none; display: flex; align-items: center; gap: 8px; }
+details.more > summary::before { content: '▸'; color: var(--muted); transition: transform .15s; }
+details.more[open] > summary::before { transform: rotate(90deg); }
+details.more[open] { padding-bottom: 14px; display: grid; gap: 12px; }
+.kv { display: grid; gap: 8px; margin: 6px 0 8px; }
+.kv-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 34px; gap: 8px; }
+.kv-title { font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.code-preview { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--border); font-size: 12.5px; overflow: auto; max-height: 220px; }
+.editor.over { background: var(--accent-soft); border-color: var(--accent); }
+.hero { padding: 6px 0 0; }
+.hero h1 { margin-bottom: 0; }
+
+/* ---------- mismatch total ---------- */
+.nav-overview { justify-content: space-between; }
+.hero-card { display: grid; gap: 14px; }
+.mismatch-hero { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.mismatch-n { font-size: clamp(44px, 8vw, 68px); font-weight: 800; letter-spacing: -.04em; line-height: 1; padding: 6px 22px; border-radius: 18px; min-width: 96px; text-align: center; font-variant-numeric: tabular-nums; }
+.hero-card.has .mismatch-n { background: var(--warn-bg); color: var(--warn); }
+.hero-card.none .mismatch-n { background: var(--ok-bg); color: var(--ok); }
+.mismatch-l { font-size: 22px; font-weight: 750; letter-spacing: -.02em; }
+.topbar .badge { white-space: nowrap; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } .kv-row { grid-template-columns: 1fr 1fr 34px; } }
+
+/* ---------- small screens: nothing may push the page wider than the viewport ---------- */
+.landing > *, .main > *, .panel > *, .stack > * { min-width: 0; }
+.mismatch-hero > div { min-width: 0; }
+@media (max-width: 560px) {
+  .landing { padding: 16px 14px 48px; }
+  .seg { width: 100%; }
+  .seg-btn { flex: 1; min-width: 0; padding: 9px 4px; font-size: 13px; white-space: normal; line-height: 1.2; }
+  .panel { padding: 16px; border-radius: 16px; }
+  .layout { padding: 12px; }
+  .mismatch-hero { gap: 14px; }
+  .mismatch-n { min-width: 0; padding: 4px 16px; font-size: 44px; }
+  .page-title .pager { margin-left: 0; width: 100%; }
+  .page-title h1 { font-size: 17px; }
+  .report-name { display: none; }
+  .landing-top { flex-wrap: wrap; }
+}
+@media (max-width: 560px) { /* the table of paths becomes a list of cards */
+  table.paths, table.paths tbody { display: block; }
+  table.paths thead { display: none; }
+  table.paths tr { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  table.paths td { padding: 0; border: 0; min-width: 0; }
+  table.paths td.pathcell { grid-column: 1 / -1; order: -1; }
+  table.paths td:nth-child(4) { grid-column: 1 / -1; }
+}
+.stack > .btn, .stack > button { justify-self: start; }

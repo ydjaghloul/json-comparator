@@ -259,7 +259,7 @@ class CompareEndpointsTest {
             assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/index.html")).andExpect(status().isOk()).andReturn().getResponse()
                     .getContentAsString()).contains("Comparison report viewer").contains("js/app.js");
             assertThat(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/js/app.js")).andExpect(status().isOk())
-                    .andReturn().getResponse().getContentAsString()).contains("compare/custom");
+                    .andReturn().getResponse().getContentAsString()).contains("compare/custom").contains("compare/json");
             mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/css/report.css")).andExpect(status().isOk());
         }
     }
