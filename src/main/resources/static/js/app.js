@@ -300,18 +300,68 @@
         h('td', null, h('span', { class: 'badge ' + r.status, text: r.status })),
         h('td', { class: 'pathcell', text: r.path }),
         h('td', { text: r.status === 'ERROR' ? '—' : String(diffCount(r)) }),
-        h('td', null, r.status === 'ERROR' ? h('span', { class: 'sub', text: truncate(r.summary || '', 90) }) : types));
+        h('td', null, r.status === 'ERROR' ? h('span', { class: 'sub', text: truncate(r.summary || '', 90) }) : types),
+        h('td', { class: 'actioncell' }, h('button', { class: 'btn small', type: 'button', title: 'Open the source and target JSON in two tabs', 'aria-label': 'Open source and target of ' + r.path + ' in two tabs',
+          disabled: (hasDoc(x.i, 'source') || hasDoc(x.i, 'target')) ? null : true, text: '↗ 2 tabs',
+          onclick: function (ev) { ev.stopPropagation(); openBoth(x.i); } })));
       row.addEventListener('keydown', function (e) { if (e.key === 'Enter') location.hash = '#/p/' + x.i; });
       body.appendChild(row);
     });
     main.appendChild(h('div', { class: 'card' },
       h('div', { class: 'card-pad', style: 'padding-bottom:6px' }, h('h2', { text: 'Paths' })),
       items.length ? h('table', { class: 'paths' },
-        h('thead', null, h('tr', null, h('th', { text: 'Status' }), h('th', { text: 'Path' }), h('th', { text: 'Differences' }), h('th', { text: 'Details' }))), body)
+        h('thead', null, h('tr', null, h('th', { text: 'Status' }), h('th', { text: 'Path' }), h('th', { text: 'Differences' }), h('th', { text: 'Details' }), h('th', { text: '' }))), body)
         : h('div', { class: 'empty', text: 'No path matches the filter.' })));
   }
   function opt(name, value) { return value === undefined ? null : h('span', { class: 'opt' }, h('b', { text: name }), String(value)); }
   function tile(n, label, cls) { return h('div', { class: 'tile ' + cls }, h('div', { class: 'n', text: String(n) }), h('div', { class: 'l', text: label })); }
+
+  /* ---------- open the JSON a service returned in its own tab ---------- */
+  var pendingDocs = []; // documents that only exist in this page, handed over when the new tab asks for them
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || !e.data || e.data.type !== 'doc-ready') return;
+    var entry = pendingDocs.filter(function (p) { return p.win === e.source; })[0];
+    if (entry) { e.source.postMessage({ type: 'doc', doc: entry.doc }, location.origin); pendingDocs = pendingDocs.filter(function (p) { return p !== entry; }); }
+  });
+  function hasDoc(i, side) {
+    var entry = state.docs[i];
+    return !!(result(i)[side + 'File'] || (entry && entry[side] !== undefined));
+  }
+  /** Opens one document in a new tab; returns false when nothing could be opened. */
+  function openDoc(i, side) {
+    var r = result(i), entry = state.docs[i];
+    var label = (side === 'source' ? 'Source' : 'Target') + ' · ' + r.path;
+    var q = '?side=' + side + '&title=' + encodeURIComponent(label) + (r[side + 'Url'] ? '&url=' + encodeURIComponent(r[side + 'Url']) : '');
+    if (r[side + 'File']) { // saved on the server: the tab has its own address, which can be shared
+      var w = window.open('doc.html' + q + '&path=' + encodeURIComponent(r[side + 'File']), '_blank', 'noopener');
+      return w !== null;
+    }
+    if (entry && entry[side] !== undefined) {
+      var win = window.open('doc.html' + q + '&mem=1', '_blank');
+      if (!win) return false;
+      pendingDocs.push({ win: win, doc: entry[side] });
+      return true;
+    }
+    toast('No ' + side + ' document was returned for this path.');
+    return false;
+  }
+  function openBoth(i) {
+    var a = openDoc(i, 'source'), b = openDoc(i, 'target');
+    if (a && !b && hasDoc(i, 'target')) toast('The browser blocked the second tab: allow pop-ups for this site, or use the two buttons.');
+    if (!a && !b && (hasDoc(i, 'source') || hasDoc(i, 'target'))) toast('The browser blocked the new tabs: allow pop-ups for this site.');
+  }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast('Copied'); }, function () { toast('Copy failed'); });
+  }
+  function sourceLine(i, side) {
+    var r = result(i), url = r[side + 'Url'], ok = hasDoc(i, side);
+    return h('div', { class: 'src-line' },
+      h('span', { class: 'badge ' + (side === 'source' ? 'MISSING_IN_TARGET' : 'MISSING_IN_SOURCE'), text: side === 'source' ? 'SOURCE' : 'TARGET' }),
+      url ? h('code', { class: 'mono src-url', title: url, text: url }) : h('span', { class: 'sub', text: 'URL not recorded in this report' }),
+      url ? h('button', { class: 'btn small', type: 'button', text: 'Copy URL', onclick: function () { copyText(url); } }) : null,
+      h('button', { class: 'btn small', type: 'button', text: 'Open JSON ↗', disabled: ok ? null : true,
+        title: ok ? 'Open the JSON returned by the ' + side + ' in a new tab' : 'No document was returned', onclick: function () { openDoc(i, side); } }));
+  }
 
   /* ---------- path page ---------- */
   function pathPage(main, i, tab) {
@@ -329,6 +379,9 @@
           h('a', { class: 'btn small', href: i > 0 ? '#/p/' + (i - 1) : null, 'aria-disabled': i === 0 ? 'true' : null, text: '← Prev' }),
           h('a', { class: 'btn small', href: i < total - 1 ? '#/p/' + (i + 1) : null, 'aria-disabled': i === total - 1 ? 'true' : null, text: 'Next →' }))),
       h('div', { class: 'sub', style: 'margin-top:6px', text: r.status === 'ERROR' ? '' : (r.summary || '') }),
+      h('div', { class: 'sources' }, sourceLine(i, 'source'), sourceLine(i, 'target'),
+        h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', disabled: (hasDoc(i, 'source') || hasDoc(i, 'target')) ? null : true,
+          text: '↗ Open source and target in two tabs', title: 'Show the JSON returned by each service in its own tab, to check it with the team', onclick: function () { openBoth(i); } }))),
       r.status === 'ERROR' ? h('div', { class: 'banner err', style: 'margin-top:10px' }, h('b', { text: 'Comparison failed' }), h('span', { text: r.summary || 'unknown error' })) : null,
       r.status === 'IDENTICAL' ? h('div', { class: 'banner ok', style: 'margin-top:10px' }, h('b', { text: 'Identical' }), h('span', { text: 'Source and target are semantically equal.' })) : null));
 

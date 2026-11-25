@@ -363,3 +363,21 @@ details.more[open] { padding-bottom: 14px; display: grid; gap: 12px; }
   table.paths td:nth-child(4) { grid-column: 1 / -1; }
 }
 .stack > .btn, .stack > button { justify-self: start; }
+
+/* ---------- source / target of a path, and the document tab ---------- */
+.sources { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.src-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.src-line .badge { min-width: 64px; justify-content: center; }
+.src-url { flex: 1; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; padding: 4px 8px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); }
+td.actioncell { text-align: right; white-space: nowrap; }
+.docwrap { max-width: 1100px; margin: 0 auto; padding: 18px 18px 40px; display: grid; gap: 14px; }
+.dochead { display: grid; gap: 12px; position: sticky; top: 0; z-index: 5; padding: 12px 0; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); }
+.docmeta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.docmeta h1 { margin: 0; font-size: 18px; font-family: var(--mono); font-weight: 600; word-break: break-all; }
+.docurl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.docurl code { font-size: 12.5px; word-break: break-all; color: var(--muted); }
+.docbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.docbar .search { max-width: 320px; }
+.docbody { overflow: hidden; }
+.docpage .code { max-height: none; }
+@media (max-width: 560px) { .src-line .src-url { flex-basis: 100%; order: 3; } table.paths td.actioncell { grid-column: 1 / -1; text-align: left; } }

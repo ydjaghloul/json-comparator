@@ -5,8 +5,9 @@ Spring Boot app that calls two versions of a REST service (or reads two JSON doc
 The report says what differs, never which side is right.
 
 ## 1. What is new in 0.9
-A simpler start page for the viewer, and the total number of mismatches at the top of every report preview. No change
-to the API.
+A simpler start page for the viewer, the total number of mismatches at the top of every report preview, and the
+JSON returned by each service in its own browser tab. The API only gains two informational fields (`sourceUrl`,
+`targetUrl`).
 
 | # | Change |
 |---|--------|
@@ -14,7 +15,9 @@ to the API.
 | 2 | **List of URLs**: paths are a list (add, remove, Enter for a new line, paste one path per line); base URLs used before are suggested |
 | 3 | **Two JSON**: a small form to compare two documents (paste or load a file on each side, optional name, same options); uses `POST /compare/json`; the result opens with both documents side by side |
 | 4 | **Total number of mismatches** on the overview (large figure with the split by type), in the top bar and next to *Overview* in the sidebar |
-| 5 | Phone layout fixed (no horizontal scroll), version `0.9.0` |
+| 5 | **Source and target in two tabs**: from a path (page or overview), one click opens the JSON returned by the source and by the target, each in its own tab with the URL called, find, copy and download. Handy to check a result with the team |
+| 6 | Results of live comparisons carry `sourceUrl` and `targetUrl`, the URLs that were called |
+| 7 | Phone layout fixed (no horizontal scroll), version `0.9.0` |
 
 0.8 (see `SPEC_v0.8.md`): report viewer, `targetPath`, saved reports API. 0.7: property-level detail, headers, layers.
 0.6: folder per path. 0.5: order-insensitive arrays, `location`. Older: 0.4 upload, 0.3 `nullMatching`, 0.2
@@ -137,11 +140,16 @@ Invalid values → `400`. All return the same report:
     { "path": "/customers/42/orders", "status": "DIFFERENT", "summary": "2 differences",
       "differenceCount": 2, "byType": { "VALUE_MISMATCH": 1, "MISSING_IN_TARGET": 1 },
       "differences": [ ... see section 5 ... ],
+      "sourceUrl": "https://source.example.com/customers/42/orders",
+      "targetUrl": "https://target.example.com/customers/42/orders",
       "sourceFile": "20261118-135000/customers_42_orders/source.json",
       "targetFile": "20261118-135000/customers_42_orders/target.json",
       "reportFile": "20261118-135000/customers_42_orders/report.json" },
     { "path": "/customers/43/orders", "status": "ERROR", "summary": "target_service returned HTTP 500" } ] }
 ```
+- `sourceUrl` / `targetUrl` (live comparisons only): the URLs fetched for this path, base URL and path joined by one
+  slash; informational, so a result can be checked by hand or with the team. Present on `ERROR` results too (both
+  were attempted). No header or credential is ever part of them. Not present for `/compare/files` and `/compare/json`.
 - `status`: `IDENTICAL` | `ERROR` | `DIFFERENT`. One result per path, always with the full list of differences
   (no cap, no truncation). `IDENTICAL` has no `differences`; the summary reports the options actually used.
 
@@ -252,6 +260,20 @@ highlighted on every line it spans. Target lines use `targetPath` (else `jsonPat
 highlighted at its own position on each side. The panes scroll together; clicking a highlighted line or using the
 buttons jumps to the matching line on both sides. Documents over 20 000 lines are cut with a notice.
 
+**Source and target in two tabs.** On a path page, under the title, the called URL of each side is shown with *Copy
+URL* and *Open JSON ↗*, and *↗ Open source and target in two tabs* opens both at once; the overview has a *↗ 2 tabs*
+button on every row. Each tab (`doc.html`) shows the JSON that service returned: pretty-printed with line numbers, the
+title (`Source · /orders/42`), the URL called, *Find* (highlights every matching line, Enter / Shift+Enter move between
+matches), *Copy JSON* and *Download*.
+- A document saved by a live run opens at its own address (`doc.html?side=…&path=…`, read through
+  `GET /reports/file`), so the link can be sent to a colleague who can reach the same server; if the file is gone or the
+  path is refused the tab says so.
+- A document that only exists in the viewer (JSON comparison, files attached by hand) is handed to the new tab by the
+  opening page (`postMessage`, same origin only); that tab cannot be reopened later from its address.
+- A side that returned no document (call failed, no body) has its button disabled. If the browser blocks the second
+  tab, a message asks to allow pop-ups for the site and the two individual buttons still work.
+- The tab is built with text nodes only (the title and URL come from the address and are treated as text).
+
 **Missing documents.** If a path has no saved documents (inline or uploaded comparisons, or a pasted report), the page
 offers to attach the source and target JSON files; the differences tab always works.
 
@@ -295,9 +317,12 @@ when a layer imports a layer it must not depend on. Tests sit in the same packag
 - **Viewer API**: `/reports/runs` lists runs; `/reports/file` returns a saved file; traversal attempts, other
   extensions and unknown files are refused (`400` / `404`); the static pages are served.
 - **targetPath**: moved array elements give their target position, omitted when equal to `jsonPath`.
-- **Viewer**: the static pages are served and the script targets `POST /compare/custom` and `POST /compare/json`
-  (Maven test). The page logic (form validation, paths list, headers, JSON tab, totals, phone layout) was also
-  checked by hand in a browser; there is no Node or npm in the project.
+- **Called URLs**: every live result has `sourceUrl` / `targetUrl` (also `ERROR`, also in the saved path report); base
+  and path are joined by a single slash, whatever the slashes around.
+- **Viewer**: the static pages (also `doc.html`, `js/doc.js`) are served and the script targets `POST /compare/custom` and `POST /compare/json`
+  (Maven test). The page logic (form validation, paths list, headers, JSON tab, totals, phone layout, the two document
+  tabs: saved and in-page documents, find, copy, missing side, bad path, hostile title) was also checked by hand in
+  a browser; there is no Node or npm in the project.
 - **Layering**: `LayeringTest` enforces the dependency directions of section 9.
 - **Symmetry**: randomized source/target swap gives the mirrored result for all option combinations.
 - **Endpoints** (fake source/target services): full detail, `ERROR` cases, `STATUS_MISMATCH`, saved files,
