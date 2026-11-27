@@ -14,6 +14,10 @@ The report says what differs, never which side is right.
 | 3 | Durations are also in the saved `report.json` files, so runs can be compared later |
 | 4 | Version `0.10.0` (Maven, OpenAPI info) |
 
+**0.10.1 (fix)**: *Open source and target in two tabs* opened only one tab in browsers that allow a single pop-up per
+click. One tab is now opened by a real link (never blocked) and the other by `window.open`; a refused tab is reported by a
+notice with a link, and the false "blocked" message shown when both tabs had opened is gone.
+
 0.9 (see `SPEC_v0.9.md`): simpler start page, mismatch totals, source and target JSON in two tabs, `sourceUrl` /
 `targetUrl`. 0.8: report viewer, `targetPath`, saved reports API. 0.7: property-level detail, headers, layers.
 0.6: folder per path. 0.5: order-insensitive arrays, `location`. Older: 0.4 upload, 0.3 `nullMatching`, 0.2
@@ -285,10 +289,16 @@ matches), *Copy JSON* and *Download*.
 - A document saved by a live run opens at its own address (`doc.html?side=…&path=…`, read through
   `GET /reports/file`), so the link can be sent to a colleague who can reach the same server; if the file is gone or the
   path is refused the tab says so.
-- A document that only exists in the viewer (JSON comparison, files attached by hand) is handed to the new tab by the
-  opening page (`postMessage`, same origin only); that tab cannot be reopened later from its address.
-- A side that returned no document (call failed, no body) has its button disabled. If the browser blocks the second
-  tab, a message asks to allow pop-ups for the site and the two individual buttons still work.
+- A document that only exists in the viewer (JSON comparison, files attached by hand) is requested by the new tab over a
+  same-origin `BroadcastChannel` and answered by the viewer tab, so it also works for a tab opened with a plain link and
+  survives a reload of the new tab as long as the viewer tab stays open. If the viewer tab was closed, the new tab says
+  so.
+- A side that returned no document (call failed, no body) has its button disabled.
+- **Pop-ups.** Browsers allow one pop-up per click, so two `window.open` calls open one tab. *Open source and target in two
+  tabs* is therefore a link: following it opens the target tab (a click on a link is not subject to the pop-up blocker)
+  and its click handler opens the source tab with `window.open`. If the browser still refuses a tab, a notice stays on
+  screen (until dismissed) with an *Open the source ↗* link that opens it with one more click, and suggests allowing
+  pop-ups for the site. *Open JSON ↗* on each side is a plain link too (middle-click and Ctrl/⌘-click work).
 - The tab is built with text nodes only (the title and URL come from the address and are treated as text).
 
 **Missing documents.** If a path has no saved documents (inline or uploaded comparisons, or a pasted report), the page
@@ -341,7 +351,7 @@ when a layer imports a layer it must not depend on. Tests sit in the same packag
   comparisons have none.
 - **Viewer**: the static pages (also `doc.html`, `js/doc.js`) are served and the script targets `POST /compare/custom` and `POST /compare/json`
   (Maven test). The page logic (form validation, paths list, headers, JSON tab, totals, phone layout, the two document
-  tabs: saved and in-page documents, find, copy, missing side, bad path, hostile title; the performance card, time
+  tabs (also with the pop-up blocker enabled, order of the tabs, the notice for a refused tab): saved and in-page documents, find, copy, missing side, bad path, hostile title; the performance card, time
   column, speed line, failed call timed, nothing shown for a JSON comparison, phone layout) was also checked by hand in
   a browser; there is no Node or npm in the project.
 - **Layering**: `LayeringTest` enforces the dependency directions of section 9.

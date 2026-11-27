@@ -109,13 +109,16 @@
       var doc; try { doc = JSON.parse(raw); } catch (e) { throw new Error('The saved file is not valid JSON.'); }
       show(doc, raw);
     }).catch(function (e) { message(e.message, 'err'); });
-  } else if (params.get('mem') && window.opener) {
+  } else if (params.get('mem') && 'BroadcastChannel' in window) {
+    // a document that only exists in the viewer tab: asked for over a same-origin channel
+    var memId = params.get('mem'), channel = new BroadcastChannel('json-doc-handoff'), got = false;
     message('Loading…');
-    window.addEventListener('message', function (e) {
-      if (e.origin !== location.origin || !e.data || e.data.type !== 'doc') return;
-      show(e.data.doc);
-    });
-    window.opener.postMessage({ type: 'doc-ready' }, location.origin);
+    channel.onmessage = function (e) {
+      if (got || !e.data || e.data.type !== 'doc' || e.data.id !== memId) return;
+      got = true; channel.close(); show(e.data.doc);
+    };
+    channel.postMessage({ type: 'doc-ready', id: memId });
+    setTimeout(function () { if (!got) message('This document was handed over by the viewer tab, which is no longer open. Open it again from the viewer.', 'warn'); }, 4000);
   } else {
     message('Nothing to show. Open this document from the report viewer.', 'warn');
   }
