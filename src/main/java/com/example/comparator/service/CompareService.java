@@ -150,7 +150,7 @@ public class CompareService {
                 differences.addAll(comparator.compare(source.json(), target.json(), options));
                 result = PathResult.compared(path, differences, sourceFile, targetFile);
             }
-            result = result.withUrls(sourceUrl, targetUrl);
+            result = result.withUrls(sourceUrl, targetUrl).withDurations(source.durationMillis(), target.durationMillis());
             // The report is saved with its own location, so the file says where its siblings are
             String reportFile = storage.relativize(
                     run.folder() == null ? null : run.folder().resolve(folder + FileStorageService.REPORT_FILE));
@@ -202,19 +202,28 @@ public class CompareService {
                 List.of(PathResult.compared(name, comparator.compare(source, target, resolved), null, null)), resolved);
     }
 
+    /**
+     * One GET. The duration is the time to extract the JSON: from sending the request to having the body read and
+     * parsed (connection, waiting for the service and transfer included). A failed call is timed until it failed.
+     */
     private Response fetch(RestClient client, String service, String path) {
+        long start = System.nanoTime();
+        Response response;
         try {
-            return client.get()
+            response = client.get()
                     .uri(path)
                     .accept(MediaType.APPLICATION_JSON)
-                    .exchange((request, response) -> toResponse(service, response.getStatusCode().value(),
-                            readBody(response)));
+                    .exchange((request, reply) -> toResponse(service, reply.getStatusCode().value(),
+                            readBody(reply)));
         }
         catch (RuntimeException e) {
             // Connection refused, timeout, invalid URL... Message never includes request headers.
             log.warn("{} call failed for {}: {}", service, path, e.toString());
-            return Response.failed(service + " call failed: " + describe(e));
+            response = Response.failed(service + " call failed: " + describe(e));
         }
+        long millis = Math.round((System.nanoTime() - start) / 1_000_000.0);
+        log.debug("{} answered {} in {} ms", service, path, millis);
+        return response.withDuration(millis);
     }
 
     private Response toResponse(String service, int status, String body) {
@@ -275,7 +284,11 @@ public class CompareService {
     }
 
     /** Outcome of one HTTP call: status, parsed body (null when there is none) or an error message. */
-    private record Response(int status, JsonNode json, String error) {
+    private record Response(int status, JsonNode json, String error, long durationMillis) {
+
+        Response(int status, JsonNode json, String error) {
+            this(status, json, error, 0);
+        }
 
         static Response failed(String error) {
             return new Response(-1, null, error);
@@ -283,6 +296,10 @@ public class CompareService {
 
         static Response failed(int status, String error) {
             return new Response(status, null, error);
+        }
+
+        Response withDuration(long millis) {
+            return new Response(status, json, error, millis);
         }
     }
 }

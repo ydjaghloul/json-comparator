@@ -1,6 +1,6 @@
 # REST Service Comparator
 
-Full specification: [SPEC_v0.9.md](SPEC_v0.9.md).
+Full specification: [SPEC_v0.10.md](SPEC_v0.10.md).
 
 Spring Boot 3.5 / Java 17 app that calls two versions of a REST service with the same relative paths and reports semantic JSON differences.
 
@@ -23,11 +23,11 @@ Credentials are never logged and never written to saved files. If a variable is 
 mvn clean verify
 export CLIENT_ID=... CLIENT_SECRET=...
 mvn spring-boot:run
-# or: java -jar target/rest-service-comparator-0.9.0.jar
+# or: java -jar target/rest-service-comparator-0.10.0.jar
 ```
 
 ## Code layout
-`controller` (HTTP API) → `service` (use cases, saved files) → `client` (calls to the services) / `comparator` (JSON comparison) → `config` → `model` (records and enums). Details in [SPEC_v0.9.md](SPEC_v0.9.md), section 9.
+`controller` (HTTP API) → `service` (use cases, saved files) → `client` (calls to the services) / `comparator` (JSON comparison) → `config` → `model` (records and enums). Details in [SPEC_v0.10.md](SPEC_v0.10.md), section 9.
 
 ## Configuration (`src/main/resources/application.yml`)
 - `source_service.base-url`, `target_service.base-url` (required)
@@ -52,7 +52,9 @@ Open **http://localhost:8080/**. Plain HTML, CSS and JavaScript served by the ap
 - **Two JSON**: paste or load a source and a target JSON (choose a file or drop it on the text area), optionally name the comparison, and press *Compare*. Nothing is called or saved.
 - **Open a report**: load an earlier result from a saved run, a `.json` file, or pasted JSON.
 
-The preview starts with the **total number of mismatches** (also in the top bar and the sidebar), then gives one page per path: every difference with its exact location, and the **source and target documents side by side with the differing parts highlighted** (red: only in source, green: only in target, amber: value or type differs). For live runs the full documents are loaded from the saved files (`GET /reports/file`); for the JSON comparison they are already in the page; otherwise attach the two JSON files on the path page. **Check with the team:** on a path page (or with *↗ 2 tabs* on a row of the overview) open the JSON **returned by the source and by the target in two separate browser tabs**. Each tab shows the URL that was called, with find, copy and download; for live runs the tab has its own address that can be sent to a colleague who reaches the same server. Live results also carry `sourceUrl` and `targetUrl` in the report. A built-in sample can be tried from *Open a report*. Light and dark theme, responsive down to a phone.
+The preview starts with the **total number of mismatches** (also in the top bar and the sidebar), then gives one page per path: every difference with its exact location, and the **source and target documents side by side with the differing parts highlighted** (red: only in source, green: only in target, amber: value or type differs). For live runs the full documents are loaded from the saved files (`GET /reports/file`); for the JSON comparison they are already in the page; otherwise attach the two JSON files on the path page. **Performance:** every path of a live run shows how long each service took to deliver its JSON (`sourceDurationMs` / `targetDurationMs` in the report, in milliseconds, from the request to the body read and parsed; failed calls are timed until they failed). The overview has a *Performance* card (averages, totals, slowest call, per-path bars with "target 2.4× slower"), the table of paths has a time column, and each path page and document tab shows its times. Durations are also in the saved `report.json` files, so runs can be compared later. The first call to a host includes connection set-up, so compare several runs.
+
+**Check with the team:** on a path page (or with *↗ 2 tabs* on a row of the overview) open the JSON **returned by the source and by the target in two separate browser tabs**. Each tab shows the URL that was called, with find, copy and download; for live runs the tab has its own address that can be sent to a colleague who reaches the same server. Live results also carry `sourceUrl` and `targetUrl` in the report. A built-in sample can be tried from *Open a report*. Light and dark theme, responsive down to a phone.
 
 ## Headers
 Besides the configured credentials, extra HTTP headers can be given **per request**, without restarting the app:

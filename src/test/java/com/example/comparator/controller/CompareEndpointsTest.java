@@ -67,6 +67,8 @@ class CompareEndpointsTest {
         SERVICES.respond("target", "/status/check", 404, "{\"error\":\"not found\"}", 0);
         SERVICES.respond("source", "/slow", 200, "{}", 0);
         SERVICES.respond("target", "/slow", 200, "{}", 3000);
+        SERVICES.respond("alt", "/perf", 200, "{\"ok\":true}", 0);
+        SERVICES.respond("target", "/perf", 200, "{\"ok\":true}", 400);
         SERVICES.respond("alt", "/products/1001", 200, "{\"id\":\"1001\",\"name\":\"Pen\",\"price\":\"1.5\"}", 0);
         SERVICES.respond("alt", "/customers/42/orders", 200, ORDERS_42_SOURCE, 0);
     }
@@ -412,7 +414,8 @@ class CompareEndpointsTest {
             JsonNode inline = call("/compare/json", request.toString(), status().isOk()).at("/results/0");
 
             ObjectNode liveWithoutFiles = live.deepCopy();
-            liveWithoutFiles.remove(List.of("sourceFile", "targetFile", "reportFile", "sourceUrl", "targetUrl"));
+            liveWithoutFiles.remove(List.of("sourceFile", "targetFile", "reportFile", "sourceUrl", "targetUrl",
+                    "sourceDurationMs", "targetDurationMs"));
             assertThat(inline).isEqualTo(liveWithoutFiles);
         }
     }
@@ -461,6 +464,36 @@ class CompareEndpointsTest {
                 assertThat(headers).doesNotContainKey("client_id");
                 assertThat(headers).doesNotContainKey("client_secret");
             });
+        }
+
+        @Test
+        void eachResultGivesTheTimeEachServiceTookToDeliverItsJson() throws Exception {
+            JsonNode report = call("/compare/custom", customRequest(SERVICES.baseUrl() + "/alt", SERVICES.baseUrl() + "/target",
+                    "/perf"), status().isOk());
+
+            JsonNode result = result(report, "/perf");
+            long source = result.get("sourceDurationMs").asLong();
+            long target = result.get("targetDurationMs").asLong();
+            assertThat(target).as("the target waited 400 ms").isGreaterThanOrEqualTo(380);
+            assertThat(source).as("the source answered at once").isLessThan(target);
+            // the saved report of the path carries them too
+            assertThat(json(Files.readString(OUTPUT_DIR.resolve(result.get("reportFile").asText()))).get("targetDurationMs").asLong())
+                    .isEqualTo(target);
+        }
+
+        @Test
+        void durationsAreAlsoGivenWhenACallFailed() throws Exception {
+            JsonNode report = call("/compare", null, status().isOk());
+
+            JsonNode timeout = result(report, "/slow");
+            assertThat(timeout.get("status").asText()).isEqualTo("ERROR");
+            assertThat(timeout.get("sourceDurationMs").asLong()).isGreaterThanOrEqualTo(0);
+            assertThat(timeout.get("targetDurationMs").asLong()).as("timed until it failed").isGreaterThan(0);
+            JsonNode http500 = result(report, "/customers/43/orders");
+            assertThat(http500.has("targetDurationMs")).isTrue();
+            // nothing is timed when nothing is called
+            JsonNode inline = call("/compare/json", "{\"source\":{\"a\":1},\"target\":{\"a\":2}}", status().isOk());
+            assertThat(inline.at("/results/0").has("sourceDurationMs")).isFalse();
         }
 
         @Test

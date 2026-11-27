@@ -56,6 +56,33 @@
   }
   function store(key, value) { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) { return null; } return null; }
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+  /** 0 -> "<1 ms", 340 -> "340 ms", 1234 -> "1.23 s", 75000 -> "1 min 15 s". */
+  function fmtMs(ms) {
+    if (ms === undefined || ms === null) return '–';
+    if (ms < 1) return '<1 ms';
+    if (ms < 1000) return Math.round(ms) + ' ms';
+    if (ms < 60000) return (ms / 1000).toFixed(ms < 10000 ? 2 : 1) + ' s';
+    return Math.floor(ms / 60000) + ' min ' + Math.round((ms % 60000) / 1000) + ' s';
+  }
+  /** "2.4× slower" / "1.5× faster" / "same"; the target compared with the source. */
+  function ratioText(sourceMs, targetMs) {
+    if (sourceMs === undefined || targetMs === undefined || sourceMs === null || targetMs === null) return null;
+    var a = Math.max(sourceMs, 1), b = Math.max(targetMs, 1), r = b / a;
+    if (Math.abs(targetMs - sourceMs) < 20 || (r > 0.9 && r < 1.1)) return { text: 'same speed', cls: 'same' };
+    return r > 1 ? { text: r.toFixed(r < 10 ? 1 : 0) + '× slower', cls: 'slow' } : { text: (1 / r).toFixed(1 / r < 10 ? 1 : 0) + '× faster', cls: 'fast' };
+  }
+  function hasTimes(r) { return r.sourceDurationMs !== undefined && r.sourceDurationMs !== null; }
+  function timingStats() {
+    var rows = state.report.results.filter(hasTimes);
+    if (!rows.length) return null;
+    function sum(k) { return rows.reduce(function (n, r) { return n + (r[k] || 0); }, 0); }
+    var slowest = null;
+    rows.forEach(function (r) {
+      [['source', r.sourceDurationMs], ['target', r.targetDurationMs]].forEach(function (c) { if (!slowest || c[1] > slowest.ms) slowest = { path: r.path, side: c[0], ms: c[1] }; });
+    });
+    return { rows: rows, sourceTotal: sum('sourceDurationMs'), targetTotal: sum('targetDurationMs'),
+      sourceAvg: sum('sourceDurationMs') / rows.length, targetAvg: sum('targetDurationMs') / rows.length, slowest: slowest };
+  }
   function show(v) { return JSON.stringify(v, null, 2); }
   function truncate(text, max) { return text.length > max ? text.slice(0, max) + '…' : text; }
 
@@ -291,6 +318,29 @@
       h('div', null, legend, h('h3', { text: totalDiffs ? plural(totalDiffs, 'difference') + ' by type' : 'No difference', style: 'margin-top:18px' }),
         totalDiffs ? typeBar : null, totalDiffs ? h('div', { style: 'margin-top:10px' }, typeLegend) : null)));
 
+    var stats = timingStats();
+    if (stats) {
+      var ranked = stats.rows.slice().sort(function (a, b) { return Math.max(b.sourceDurationMs, b.targetDurationMs) - Math.max(a.sourceDurationMs, a.targetDurationMs); }).slice(0, 8);
+      var scale = Math.max.apply(null, ranked.map(function (r) { return Math.max(r.sourceDurationMs, r.targetDurationMs); })) || 1;
+      var bars = h('div', { class: 'perf-bars' });
+      ranked.forEach(function (r) {
+        var ratio = ratioText(r.sourceDurationMs, r.targetDurationMs);
+        function bar(side, ms) { return h('div', { class: 'perf-bar-row' }, h('span', { class: 'perf-side', text: side === 'source' ? 'src' : 'tgt' }),
+          h('div', { class: 'perf-track' }, h('i', { class: side, style: 'width:' + Math.max(1, ms / scale * 100) + '%' })), h('span', { class: 'perf-ms', text: fmtMs(ms) })); }
+        bars.appendChild(h('a', { class: 'perf-row', href: '#/p/' + state.report.results.indexOf(r) },
+          h('div', { class: 'perf-head' }, h('span', { class: 'perf-path', text: r.path }), ratio ? h('span', { class: 'ratio ' + ratio.cls, text: 'target ' + ratio.text }) : null),
+          bar('source', r.sourceDurationMs), bar('target', r.targetDurationMs)));
+      });
+      main.appendChild(h('div', { class: 'card card-pad' },
+        h('div', { class: 'page-title' }, h('h2', { text: 'Performance', style: 'margin:0' }), h('span', { class: 'sub', text: 'time to get the JSON from each service' })),
+        h('div', { class: 'perf-tiles' },
+          perfTile('Source · average', fmtMs(stats.sourceAvg), 'total ' + fmtMs(stats.sourceTotal), 'source'),
+          perfTile('Target · average', fmtMs(stats.targetAvg), 'total ' + fmtMs(stats.targetTotal), 'target'),
+          perfTile('Slowest call', fmtMs(stats.slowest.ms), stats.slowest.side + ' · ' + stats.slowest.path, 'slowest'),
+          perfTile('Target vs source', (ratioText(stats.sourceAvg, stats.targetAvg) || { text: '–' }).text, 'on average', 'vs')),
+        h('h3', { class: 'perf-sub', text: ranked.length < stats.rows.length ? 'Slowest ' + ranked.length + ' paths' : 'Paths' }), bars));
+    }
+
     var items = visibleResults();
     var body = h('tbody');
     items.forEach(function (x) {
@@ -301,6 +351,7 @@
         h('td', { class: 'pathcell', text: r.path }),
         h('td', { text: r.status === 'ERROR' ? '—' : String(diffCount(r)) }),
         h('td', null, r.status === 'ERROR' ? h('span', { class: 'sub', text: truncate(r.summary || '', 90) }) : types),
+        h('td', { class: 'timecell' }, hasTimes(r) ? fmtMs(r.sourceDurationMs) + ' → ' + fmtMs(r.targetDurationMs) : '–'),
         h('td', { class: 'actioncell' }, h('button', { class: 'btn small', type: 'button', title: 'Open the source and target JSON in two tabs', 'aria-label': 'Open source and target of ' + r.path + ' in two tabs',
           disabled: (hasDoc(x.i, 'source') || hasDoc(x.i, 'target')) ? null : true, text: '↗ 2 tabs',
           onclick: function (ev) { ev.stopPropagation(); openBoth(x.i); } })));
@@ -310,9 +361,10 @@
     main.appendChild(h('div', { class: 'card' },
       h('div', { class: 'card-pad', style: 'padding-bottom:6px' }, h('h2', { text: 'Paths' })),
       items.length ? h('table', { class: 'paths' },
-        h('thead', null, h('tr', null, h('th', { text: 'Status' }), h('th', { text: 'Path' }), h('th', { text: 'Differences' }), h('th', { text: 'Details' }), h('th', { text: '' }))), body)
+        h('thead', null, h('tr', null, h('th', { text: 'Status' }), h('th', { text: 'Path' }), h('th', { text: 'Differences' }), h('th', { text: 'Details' }), h('th', { text: 'Time src → tgt' }), h('th', { text: '' }))), body)
         : h('div', { class: 'empty', text: 'No path matches the filter.' })));
   }
+  function perfTile(label, value, sub, cls) { return h('div', { class: 'perf-tile ' + cls }, h('div', { class: 'l', text: label }), h('div', { class: 'n', text: value }), h('div', { class: 'sub', text: sub, title: sub })); }
   function opt(name, value) { return value === undefined ? null : h('span', { class: 'opt' }, h('b', { text: name }), String(value)); }
   function tile(n, label, cls) { return h('div', { class: 'tile ' + cls }, h('div', { class: 'n', text: String(n) }), h('div', { class: 'l', text: label })); }
 
@@ -331,7 +383,8 @@
   function openDoc(i, side) {
     var r = result(i), entry = state.docs[i];
     var label = (side === 'source' ? 'Source' : 'Target') + ' · ' + r.path;
-    var q = '?side=' + side + '&title=' + encodeURIComponent(label) + (r[side + 'Url'] ? '&url=' + encodeURIComponent(r[side + 'Url']) : '');
+    var q = '?side=' + side + '&title=' + encodeURIComponent(label) + (r[side + 'Url'] ? '&url=' + encodeURIComponent(r[side + 'Url']) : '') +
+      (r[side + 'DurationMs'] !== undefined && r[side + 'DurationMs'] !== null ? '&ms=' + r[side + 'DurationMs'] : '');
     if (r[side + 'File']) { // saved on the server: the tab has its own address, which can be shared
       var w = window.open('doc.html' + q + '&path=' + encodeURIComponent(r[side + 'File']), '_blank', 'noopener');
       return w !== null;
@@ -353,11 +406,20 @@
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast('Copied'); }, function () { toast('Copy failed'); });
   }
+  function speedLine(r) {
+    var ratio = hasTimes(r) ? ratioText(r.sourceDurationMs, r.targetDurationMs) : null;
+    if (!ratio) return null;
+    var delta = r.targetDurationMs - r.sourceDurationMs;
+    return h('div', { class: 'speed ' + ratio.cls }, h('b', { text: 'Target: ' + ratio.text }),
+      h('span', { text: ratio.cls === 'same' ? ' (' + fmtMs(r.sourceDurationMs) + ' / ' + fmtMs(r.targetDurationMs) + ')' : ' (' + (delta > 0 ? '+' : '−') + fmtMs(Math.abs(delta)) + ': ' + fmtMs(r.sourceDurationMs) + ' → ' + fmtMs(r.targetDurationMs) + ')' }));
+  }
   function sourceLine(i, side) {
     var r = result(i), url = r[side + 'Url'], ok = hasDoc(i, side);
     return h('div', { class: 'src-line' },
       h('span', { class: 'badge ' + (side === 'source' ? 'MISSING_IN_TARGET' : 'MISSING_IN_SOURCE'), text: side === 'source' ? 'SOURCE' : 'TARGET' }),
       url ? h('code', { class: 'mono src-url', title: url, text: url }) : h('span', { class: 'sub', text: 'URL not recorded in this report' }),
+      r[side + 'DurationMs'] !== undefined && r[side + 'DurationMs'] !== null
+        ? h('span', { class: 'time-chip', title: 'Time to get this JSON: request sent to body read and parsed', text: '⏱ ' + fmtMs(r[side + 'DurationMs']) }) : null,
       url ? h('button', { class: 'btn small', type: 'button', text: 'Copy URL', onclick: function () { copyText(url); } }) : null,
       h('button', { class: 'btn small', type: 'button', text: 'Open JSON ↗', disabled: ok ? null : true,
         title: ok ? 'Open the JSON returned by the ' + side + ' in a new tab' : 'No document was returned', onclick: function () { openDoc(i, side); } }));
@@ -379,7 +441,7 @@
           h('a', { class: 'btn small', href: i > 0 ? '#/p/' + (i - 1) : null, 'aria-disabled': i === 0 ? 'true' : null, text: '← Prev' }),
           h('a', { class: 'btn small', href: i < total - 1 ? '#/p/' + (i + 1) : null, 'aria-disabled': i === total - 1 ? 'true' : null, text: 'Next →' }))),
       h('div', { class: 'sub', style: 'margin-top:6px', text: r.status === 'ERROR' ? '' : (r.summary || '') }),
-      h('div', { class: 'sources' }, sourceLine(i, 'source'), sourceLine(i, 'target'),
+      h('div', { class: 'sources' }, sourceLine(i, 'source'), sourceLine(i, 'target'), speedLine(r),
         h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', disabled: (hasDoc(i, 'source') || hasDoc(i, 'target')) ? null : true,
           text: '↗ Open source and target in two tabs', title: 'Show the JSON returned by each service in its own tab, to check it with the team', onclick: function () { openBoth(i); } }))),
       r.status === 'ERROR' ? h('div', { class: 'banner err', style: 'margin-top:10px' }, h('b', { text: 'Comparison failed' }), h('span', { text: r.summary || 'unknown error' })) : null,
