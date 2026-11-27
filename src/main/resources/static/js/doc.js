@@ -8,6 +8,7 @@
   var title = params.get('title') || 'JSON document';
   var calledUrl = params.get('url');
   var side = params.get('side');
+  var ms = params.get('ms');
 
   try { var theme = localStorage.getItem('viewer-theme'); if (theme) document.documentElement.setAttribute('data-theme', theme); } catch (e) { /* storage may be blocked */ }
   document.title = title;
@@ -23,6 +24,8 @@
     return el;
   }
   function toast(text) { var t = h('div', { class: 'toast', role: 'status', text: text }); document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2500); }
+
+  function fmtMs(v) { return v < 1 ? '<1 ms' : v < 1000 ? v + ' ms' : v < 60000 ? (v / 1000).toFixed(v < 10000 ? 2 : 1) + ' s' : Math.floor(v / 60000) + ' min ' + Math.round((v % 60000) / 1000) + ' s'; }
 
   function shell(body) {
     app.textContent = '';
@@ -81,6 +84,7 @@
       h('div', { class: 'docmeta' },
         h('span', { class: 'badge ' + (side === 'target' ? 'MISSING_IN_SOURCE' : 'MISSING_IN_TARGET'), text: side ? side.toUpperCase() : 'JSON' }),
         h('h1', { text: title.replace(/^(Source|Target) · /, '') }),
+        ms !== null && /^\d+$/.test(ms) ? h('span', { class: 'time-chip', title: 'Time to get this JSON: request sent to body read and parsed', text: '⏱ ' + fmtMs(+ms) }) : null,
         calledUrl ? h('div', { class: 'docurl' }, h('code', { class: 'mono', text: calledUrl }), h('button', { class: 'btn small', type: 'button', text: 'Copy URL', onclick: function () { copy(calledUrl); } })) : null),
       h('div', { class: 'docbar' },
         find, count,

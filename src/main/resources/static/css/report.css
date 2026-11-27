@@ -381,3 +381,32 @@ td.actioncell { text-align: right; white-space: nowrap; }
 .docbody { overflow: hidden; }
 .docpage .code { max-height: none; }
 @media (max-width: 560px) { .src-line .src-url { flex-basis: 100%; order: 3; } table.paths td.actioncell { grid-column: 1 / -1; text-align: left; } }
+
+/* ---------- performance ---------- */
+.time-chip { font-size: 12px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: var(--info-bg); color: var(--info); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.speed { font-size: 13px; padding: 8px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); }
+.speed.slow { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.speed.fast { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.perf-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0 6px; }
+.perf-tile { padding: 12px 14px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border); min-width: 0; }
+.perf-tile .l { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 650; }
+.perf-tile .n { font-size: 24px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.perf-tile .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.perf-tile.source .n { color: var(--info); } .perf-tile.target .n { color: var(--violet); }
+.perf-sub { margin: 14px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.perf-bars { display: grid; gap: 8px; }
+.perf-row { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); text-decoration: none; color: var(--text); background: var(--panel); }
+.perf-row:hover { background: var(--panel-2); }
+.perf-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.perf-path { font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ratio { font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; background: var(--panel-2); color: var(--muted); }
+.ratio.slow { background: var(--warn-bg); color: var(--warn); } .ratio.fast { background: var(--ok-bg); color: var(--ok); }
+.perf-bar-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) 74px; gap: 8px; align-items: center; font-size: 12px; }
+.perf-side { color: var(--muted); text-transform: uppercase; font-size: 10.5px; letter-spacing: .06em; }
+.perf-track { height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--border); }
+.perf-track i { display: block; height: 100%; border-radius: 999px; }
+.perf-track i.source { background: var(--info); } .perf-track i.target { background: var(--violet); }
+.perf-ms { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+td.timecell { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+@media (max-width: 760px) { .perf-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { table.paths td.timecell { grid-column: 1 / -1; } }

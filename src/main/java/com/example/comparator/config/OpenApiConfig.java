@@ -14,7 +14,7 @@ public class OpenApiConfig {
     OpenAPI comparatorOpenApi() {
         return new OpenAPI().info(new Info()
                 .title("REST Service Comparator")
-                .version("0.9")
+                .version("0.10")
                 .description("Calls two versions of a REST service and reports semantic JSON differences. "
                         + "Every endpoint accepts typeMatching=STRICT|LENIENT and nullMatching=STRICT|LENIENT."));
     }
