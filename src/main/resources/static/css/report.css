@@ -410,3 +410,7 @@ td.actioncell { text-align: right; white-space: nowrap; }
 td.timecell { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
 @media (max-width: 760px) { .perf-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { table.paths td.timecell { grid-column: 1 / -1; } }
+
+.blocked-notice { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 130; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  max-width: min(92vw, 760px); padding: 12px 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--warn); box-shadow: var(--shadow); }
+a.btn { text-decoration: none; }

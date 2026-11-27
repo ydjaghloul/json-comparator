@@ -352,9 +352,7 @@
         h('td', { text: r.status === 'ERROR' ? '—' : String(diffCount(r)) }),
         h('td', null, r.status === 'ERROR' ? h('span', { class: 'sub', text: truncate(r.summary || '', 90) }) : types),
         h('td', { class: 'timecell' }, hasTimes(r) ? fmtMs(r.sourceDurationMs) + ' → ' + fmtMs(r.targetDurationMs) : '–'),
-        h('td', { class: 'actioncell' }, h('button', { class: 'btn small', type: 'button', title: 'Open the source and target JSON in two tabs', 'aria-label': 'Open source and target of ' + r.path + ' in two tabs',
-          disabled: (hasDoc(x.i, 'source') || hasDoc(x.i, 'target')) ? null : true, text: '↗ 2 tabs',
-          onclick: function (ev) { ev.stopPropagation(); openBoth(x.i); } })));
+        h('td', { class: 'actioncell' }, bothLink(x.i, 'btn small', '↗ 2 tabs', 'Open source and target of ' + r.path + ' in two tabs')));
       row.addEventListener('keydown', function (e) { if (e.key === 'Enter') location.hash = '#/p/' + x.i; });
       body.appendChild(row);
     });
@@ -369,39 +367,69 @@
   function tile(n, label, cls) { return h('div', { class: 'tile ' + cls }, h('div', { class: 'n', text: String(n) }), h('div', { class: 'l', text: label })); }
 
   /* ---------- open the JSON a service returned in its own tab ---------- */
-  var pendingDocs = []; // documents that only exist in this page, handed over when the new tab asks for them
-  window.addEventListener('message', function (e) {
-    if (e.origin !== location.origin || !e.data || e.data.type !== 'doc-ready') return;
-    var entry = pendingDocs.filter(function (p) { return p.win === e.source; })[0];
-    if (entry) { e.source.postMessage({ type: 'doc', doc: entry.doc }, location.origin); pendingDocs = pendingDocs.filter(function (p) { return p !== entry; }); }
-  });
+  /*
+   * Browsers allow one pop-up per click, so two window.open calls give one tab. Here one tab is opened by a real
+   * link (a click on a link is never blocked) and the other by window.open; if the browser still refuses, a notice
+   * with a plain link opens the missing tab with one more click.
+   */
+  var handoff = {};   // id -> document that only exists in this page, handed to the new tab on request
+  var handoffIds = {};
+  var channel = 'BroadcastChannel' in window ? new BroadcastChannel('json-doc-handoff') : null;
+  if (channel) channel.onmessage = function (e) {
+    var d = e.data;
+    if (d && d.type === 'doc-ready' && handoff[d.id] !== undefined) channel.postMessage({ type: 'doc', id: d.id, doc: handoff[d.id] });
+  };
   function hasDoc(i, side) {
     var entry = state.docs[i];
     return !!(result(i)[side + 'File'] || (entry && entry[side] !== undefined));
   }
-  /** Opens one document in a new tab; returns false when nothing could be opened. */
-  function openDoc(i, side) {
+  /** Address of the tab for one side, or null when that side has no document. */
+  function docHref(i, side) {
     var r = result(i), entry = state.docs[i];
     var label = (side === 'source' ? 'Source' : 'Target') + ' · ' + r.path;
     var q = '?side=' + side + '&title=' + encodeURIComponent(label) + (r[side + 'Url'] ? '&url=' + encodeURIComponent(r[side + 'Url']) : '') +
       (r[side + 'DurationMs'] !== undefined && r[side + 'DurationMs'] !== null ? '&ms=' + r[side + 'DurationMs'] : '');
-    if (r[side + 'File']) { // saved on the server: the tab has its own address, which can be shared
-      var w = window.open('doc.html' + q + '&path=' + encodeURIComponent(r[side + 'File']), '_blank', 'noopener');
-      return w !== null;
+    if (r[side + 'File']) return 'doc.html' + q + '&path=' + encodeURIComponent(r[side + 'File']); // saved on the server: a shareable address
+    if (entry && entry[side] !== undefined && channel) {
+      var key = i + side;
+      if (!handoffIds[key]) handoffIds[key] = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      handoff[handoffIds[key]] = entry[side];
+      return 'doc.html' + q + '&mem=' + handoffIds[key];
     }
-    if (entry && entry[side] !== undefined) {
-      var win = window.open('doc.html' + q + '&mem=1', '_blank');
-      if (!win) return false;
-      pendingDocs.push({ win: win, doc: entry[side] });
-      return true;
-    }
-    toast('No ' + side + ' document was returned for this path.');
-    return false;
+    return null;
   }
-  function openBoth(i) {
-    var a = openDoc(i, 'source'), b = openDoc(i, 'target');
-    if (a && !b && hasDoc(i, 'target')) toast('The browser blocked the second tab: allow pop-ups for this site, or use the two buttons.');
-    if (!a && !b && (hasDoc(i, 'source') || hasDoc(i, 'target'))) toast('The browser blocked the new tabs: allow pop-ups for this site.');
+  function disabledButton(cls, label, why) { return h('button', { class: cls, type: 'button', disabled: true, text: label, title: why }); }
+  /** Opens one side in a new tab. */
+  function docLink(i, side, cls, label) {
+    var href = docHref(i, side);
+    if (!href) return disabledButton(cls, label, 'No document was returned');
+    return h('a', { class: cls, href: href, target: '_blank', rel: 'noopener', title: 'Open the JSON returned by the ' + side + ' in a new tab', text: label });
+  }
+  /** Opens source and target, each in its own tab, with one click. */
+  function bothLink(i, cls, label, aria) {
+    var src = docHref(i, 'source'), tgt = docHref(i, 'target');
+    if (!src && !tgt) return disabledButton(cls, label, 'No document was returned');
+    var link = h('a', { class: cls, href: tgt || src, target: '_blank', rel: 'noopener', 'aria-label': aria || null,
+      title: 'Show the JSON returned by each service in its own tab, to check it with the team', text: label });
+    if (src && tgt) {
+      link.addEventListener('click', function (ev) {
+        ev.stopPropagation(); // a click on the row of the overview must not also open the path page
+        var w = window.open(src, '_blank'); // the link itself opens the target
+        if (w) { try { w.opener = null; } catch (e) { /* cross-origin never happens here */ } }
+        else showBlocked('source', src);
+      });
+    } else link.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    return link;
+  }
+  /** The browser refused a tab: say so, and give a link that opens it with one more click. */
+  function showBlocked(side, href) {
+    var old = document.getElementById('blocked-notice'); if (old) old.remove();
+    var box = h('div', { class: 'blocked-notice', id: 'blocked-notice', role: 'alert' },
+      h('span', null, 'Your browser blocked the ' + side + ' tab. '),
+      h('a', { class: 'btn small primary', href: href, target: '_blank', rel: 'noopener', text: 'Open the ' + side + ' ↗', onclick: function () { setTimeout(function () { box.remove(); }, 100); } }),
+      h('span', { class: 'hint', text: ' Allow pop-ups for this site to open both with one click.' }),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Dismiss', text: '✕', onclick: function () { box.remove(); } }));
+    document.body.appendChild(box);
   }
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast('Copied'); }, function () { toast('Copy failed'); });
@@ -414,15 +442,14 @@
       h('span', { text: ratio.cls === 'same' ? ' (' + fmtMs(r.sourceDurationMs) + ' / ' + fmtMs(r.targetDurationMs) + ')' : ' (' + (delta > 0 ? '+' : '−') + fmtMs(Math.abs(delta)) + ': ' + fmtMs(r.sourceDurationMs) + ' → ' + fmtMs(r.targetDurationMs) + ')' }));
   }
   function sourceLine(i, side) {
-    var r = result(i), url = r[side + 'Url'], ok = hasDoc(i, side);
+    var r = result(i), url = r[side + 'Url'];
     return h('div', { class: 'src-line' },
       h('span', { class: 'badge ' + (side === 'source' ? 'MISSING_IN_TARGET' : 'MISSING_IN_SOURCE'), text: side === 'source' ? 'SOURCE' : 'TARGET' }),
       url ? h('code', { class: 'mono src-url', title: url, text: url }) : h('span', { class: 'sub', text: 'URL not recorded in this report' }),
       r[side + 'DurationMs'] !== undefined && r[side + 'DurationMs'] !== null
         ? h('span', { class: 'time-chip', title: 'Time to get this JSON: request sent to body read and parsed', text: '⏱ ' + fmtMs(r[side + 'DurationMs']) }) : null,
       url ? h('button', { class: 'btn small', type: 'button', text: 'Copy URL', onclick: function () { copyText(url); } }) : null,
-      h('button', { class: 'btn small', type: 'button', text: 'Open JSON ↗', disabled: ok ? null : true,
-        title: ok ? 'Open the JSON returned by the ' + side + ' in a new tab' : 'No document was returned', onclick: function () { openDoc(i, side); } }));
+      docLink(i, side, 'btn small', 'Open JSON ↗'));
   }
 
   /* ---------- path page ---------- */
@@ -442,8 +469,7 @@
           h('a', { class: 'btn small', href: i < total - 1 ? '#/p/' + (i + 1) : null, 'aria-disabled': i === total - 1 ? 'true' : null, text: 'Next →' }))),
       h('div', { class: 'sub', style: 'margin-top:6px', text: r.status === 'ERROR' ? '' : (r.summary || '') }),
       h('div', { class: 'sources' }, sourceLine(i, 'source'), sourceLine(i, 'target'), speedLine(r),
-        h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', disabled: (hasDoc(i, 'source') || hasDoc(i, 'target')) ? null : true,
-          text: '↗ Open source and target in two tabs', title: 'Show the JSON returned by each service in its own tab, to check it with the team', onclick: function () { openBoth(i); } }))),
+        h('div', { class: 'row' }, bothLink(i, 'btn primary small', '↗ Open source and target in two tabs'))),
       r.status === 'ERROR' ? h('div', { class: 'banner err', style: 'margin-top:10px' }, h('b', { text: 'Comparison failed' }), h('span', { text: r.summary || 'unknown error' })) : null,
       r.status === 'IDENTICAL' ? h('div', { class: 'banner ok', style: 'margin-top:10px' }, h('b', { text: 'Identical' }), h('span', { text: 'Source and target are semantically equal.' })) : null));
 
